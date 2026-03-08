@@ -59,7 +59,7 @@ fun EmptyStateView(
 @Composable
 fun ErrorStateView(
     message: String,
-    onRetry: () -> Unit,
+    onRetry: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -80,13 +80,15 @@ fun ErrorStateView(
             color = MaterialTheme.colorScheme.error,
             textAlign = TextAlign.Center,
         )
-        Spacer(modifier = Modifier.height(16.dp))
-        NeoButton(
-            onClick = onRetry,
-            containerColor = MaterialTheme.colorScheme.error,
-            contentColor = MaterialTheme.colorScheme.onError,
-        ) {
-            Text("Retry")
+        if (onRetry != null) {
+            Spacer(modifier = Modifier.height(16.dp))
+            NeoButton(
+                onClick = onRetry,
+                containerColor = MaterialTheme.colorScheme.error,
+                contentColor = MaterialTheme.colorScheme.onError,
+            ) {
+                Text("Retry")
+            }
         }
     }
 }

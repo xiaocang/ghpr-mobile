@@ -231,6 +231,8 @@ class GitHubOAuthManager(context: Context) {
 
     fun getToken(): String? = prefs.getString(KEY_TOKEN, null)
 
+    fun getLogin(): String? = prefs.getString(KEY_LOGIN, null)
+
     fun signOut() {
         prefs.edit().clear().apply()
         _authState.value = GitHubAuthState.SignedOut

@@ -3,7 +3,8 @@
     "allow": [
       "WebFetch(domain:slock.ai)",
       "WebSearch",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(grep:*)"
     ]
   }
 }

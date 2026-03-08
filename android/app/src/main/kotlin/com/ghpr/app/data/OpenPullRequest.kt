@@ -1,5 +1,10 @@
 package com.ghpr.app.data
 
+enum class PrCategory {
+    AUTHORED,
+    REVIEW_REQUESTED,
+}
+
 data class OpenPullRequest(
     val number: Int,
     val title: String,
@@ -12,4 +17,5 @@ data class OpenPullRequest(
     val repoOwner: String,
     val repoName: String,
     val ciState: String?,
+    val category: PrCategory = PrCategory.AUTHORED,
 )

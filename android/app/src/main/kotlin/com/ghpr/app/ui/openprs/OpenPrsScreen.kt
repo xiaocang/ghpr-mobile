@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -30,10 +31,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.ghpr.app.data.OpenPullRequest
+import com.ghpr.app.data.SsoAuthorizationRequired
 import com.ghpr.app.ui.components.EmptyStateView
 import com.ghpr.app.ui.components.ErrorStateView
 import com.ghpr.app.ui.components.StatusBadge
 import com.ghpr.app.ui.theme.LocalGhprStatusColors
+import com.ghpr.app.ui.theme.NeoButton
 import com.ghpr.app.ui.theme.NeoCard
 import com.ghpr.app.ui.theme.neoTopBarBorder
 
@@ -58,6 +61,11 @@ fun OpenPrsScreen(viewModel: OpenPrsViewModel) {
             modifier = Modifier.fillMaxSize().padding(padding),
         ) {
             when {
+                state.error != null && !state.isSignedIn -> {
+                    ErrorStateView(
+                        message = state.error!!,
+                    )
+                }
                 !state.isSignedIn -> {
                     EmptyStateView(
                         icon = Icons.Default.AccountCircle,
@@ -76,18 +84,111 @@ fun OpenPrsScreen(viewModel: OpenPrsViewModel) {
                         onRetry = { viewModel.load() },
                     )
                 }
-                state.pullRequests.isEmpty() && !state.isLoading -> {
-                    EmptyStateView(
-                        icon = Icons.Default.Info,
-                        title = "No open PRs",
-                        subtitle = "Subscribe to repos in the Subs tab to see their open pull requests here",
-                    )
+                state.authoredPrs.isEmpty() && state.reviewRequestedPrs.isEmpty() && !state.isLoading -> {
+                    if (state.ssoRequired.isNotEmpty()) {
+                        LazyColumn(modifier = Modifier.fillMaxSize()) {
+                            item { SsoBanner(state.ssoRequired) }
+                        }
+                    } else {
+                        EmptyStateView(
+                            icon = Icons.Default.Info,
+                            title = "No open PRs",
+                            subtitle = "Subscribe to repos in the Subs tab to see your PRs and review requests here",
+                        )
+                    }
                 }
                 else -> {
                     LazyColumn(modifier = Modifier.fillMaxSize()) {
-                        items(state.pullRequests) { pr ->
-                            OpenPrCard(pr)
+                        if (state.ssoRequired.isNotEmpty()) {
+                            item { SsoBanner(state.ssoRequired) }
                         }
+                        if (state.authoredPrs.isNotEmpty()) {
+                            item { SectionHeader("My PRs", state.authoredPrs.size) }
+                            items(state.authoredPrs) { pr -> OpenPrCard(pr) }
+                        }
+                        if (state.reviewRequestedPrs.isNotEmpty()) {
+                            item { SectionHeader("Review Requested", state.reviewRequestedPrs.size) }
+                            items(state.reviewRequestedPrs) { pr -> OpenPrCard(pr) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SectionHeader(title: String, count: Int) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Text(
+            text = count.toString(),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun SsoBanner(ssoRequired: List<SsoAuthorizationRequired>) {
+    val context = LocalContext.current
+    val orgNames = ssoRequired.joinToString(", ") { it.orgName }
+
+    NeoCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                androidx.compose.material3.Icon(
+                    imageVector = Icons.Default.Warning,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error,
+                )
+                Text(
+                    text = "SSO authorization required",
+                    style = MaterialTheme.typography.titleSmall,
+                )
+            }
+            Text(
+                text = "Your token needs SSO authorization for: $orgNames",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                ssoRequired.forEach { sso ->
+                    NeoButton(
+                        onClick = {
+                            context.startActivity(
+                                Intent(Intent.ACTION_VIEW, Uri.parse(sso.authUrl)),
+                            )
+                        },
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                    ) {
+                        Text(
+                            text = "Authorize ${sso.orgName}",
+                            style = MaterialTheme.typography.labelMedium,
+                        )
                     }
                 }
             }
