@@ -1,0 +1,2 @@
+rootProject.name = 'ghpr-android'
+include ':core-domain'

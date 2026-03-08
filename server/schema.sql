@@ -1,0 +1,33 @@
+CREATE TABLE IF NOT EXISTS webhook_deliveries (
+  delivery_id TEXT PRIMARY KEY,
+  event_type TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS device_tokens (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT NOT NULL,
+  token TEXT NOT NULL UNIQUE,
+  platform TEXT NOT NULL DEFAULT 'android',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS repo_subscriptions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT NOT NULL,
+  repo_full_name TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(user_id, repo_full_name)
+);
+
+CREATE TABLE IF NOT EXISTS pr_changes (
+  delivery_id TEXT PRIMARY KEY,
+  repo_full_name TEXT NOT NULL,
+  pr_number INTEGER NOT NULL,
+  action TEXT NOT NULL,
+  changed_at_ms INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_device_tokens_user_id ON device_tokens (user_id);
+CREATE INDEX IF NOT EXISTS idx_repo_subscriptions_repo ON repo_subscriptions (repo_full_name);
+CREATE INDEX IF NOT EXISTS idx_pr_changes_repo_changed_at ON pr_changes (repo_full_name, changed_at_ms);
