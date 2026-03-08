@@ -9,8 +9,8 @@ import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.Body
-import retrofit2.http.DELETE
 import retrofit2.http.GET
+import retrofit2.http.HTTP
 import retrofit2.http.POST
 import retrofit2.http.Query
 
@@ -45,7 +45,7 @@ interface GhprApi {
     @POST("devices/register")
     suspend fun registerDevice(@Body body: RegisterDeviceRequest): Response<ApiResult>
 
-    @DELETE("devices/register")
+    @HTTP(method = "DELETE", path = "devices/register", hasBody = true)
     suspend fun unregisterDevice(@Body body: UnregisterDeviceRequest): Response<ApiResult>
 
     @GET("devices")
@@ -54,7 +54,7 @@ interface GhprApi {
     @POST("subscriptions")
     suspend fun subscribe(@Body body: SubscribeRepoRequest): Response<ApiResult>
 
-    @DELETE("subscriptions")
+    @HTTP(method = "DELETE", path = "subscriptions", hasBody = true)
     suspend fun unsubscribe(@Body body: UnsubscribeRepoRequest): Response<ApiResult>
 
     @GET("subscriptions")

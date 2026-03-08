@@ -40,6 +40,8 @@ class AppContainer(context: Context) {
 
     val gitHubOAuthManager = GitHubOAuthManager(context)
 
+    val gitHubGraphQLClient = GitHubGraphQLClient(gitHubOAuthManager)
+
     val notificationSettingsStore = DataStoreNotificationSettingsStore(context)
 
     val syncCacheStore = DataStoreSyncCacheStore(context)

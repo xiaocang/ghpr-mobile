@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -39,6 +40,8 @@ import com.ghpr.app.BuildConfig
 import com.ghpr.app.data.AppContainer
 import com.ghpr.app.ui.history.NotificationHistoryScreen
 import com.ghpr.app.ui.history.NotificationHistoryViewModel
+import com.ghpr.app.ui.openprs.OpenPrsScreen
+import com.ghpr.app.ui.openprs.OpenPrsViewModel
 import com.ghpr.app.ui.settings.SettingsScreen
 import com.ghpr.app.ui.settings.SettingsViewModel
 import com.ghpr.app.ui.subscriptions.SubscriptionsScreen
@@ -49,10 +52,11 @@ import com.ghpr.app.ui.theme.PressStart2P
 private sealed class Screen(val route: String, val label: String, val icon: ImageVector) {
     data object Subscriptions : Screen("subscriptions", "Subs", Icons.AutoMirrored.Filled.List)
     data object History : Screen("history", "History", Icons.Default.Notifications)
+    data object OpenPrs : Screen("open_prs", "PRs", Icons.Default.Star)
     data object Settings : Screen("settings", "Settings", Icons.Default.Settings)
 }
 
-private val screens = listOf(Screen.Subscriptions, Screen.History, Screen.Settings)
+private val screens = listOf(Screen.Subscriptions, Screen.History, Screen.OpenPrs, Screen.Settings)
 
 @Composable
 fun AppNavGraph(container: AppContainer) {
@@ -102,6 +106,18 @@ fun AppNavGraph(container: AppContainer) {
                 }
                 NotificationHistoryScreen(
                     viewModel = historyViewModel,
+                )
+            }
+            composable(Screen.OpenPrs.route) {
+                val openPrsViewModel = remember(container) {
+                    OpenPrsViewModel(
+                        gitHubOAuthManager = container.gitHubOAuthManager,
+                        gitHubGraphQLClient = container.gitHubGraphQLClient,
+                        cacheStore = container.syncCacheStore,
+                    )
+                }
+                OpenPrsScreen(
+                    viewModel = openPrsViewModel,
                 )
             }
             composable(Screen.Settings.route) {

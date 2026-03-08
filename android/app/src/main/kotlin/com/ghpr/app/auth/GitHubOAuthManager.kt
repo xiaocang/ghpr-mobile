@@ -99,7 +99,7 @@ class GitHubOAuthManager(context: Context) {
     private suspend fun requestDeviceCode(clientId: String): DeviceFlowInfo {
         val body = FormBody.Builder()
             .add("client_id", clientId)
-            .add("scope", "read:user")
+            .add("scope", "repo read:user")
             .build()
 
         val request = Request.Builder()
@@ -228,6 +228,8 @@ class GitHubOAuthManager(context: Context) {
 
         _authState.value = GitHubAuthState.SignedIn(login, avatarUrl)
     }
+
+    fun getToken(): String? = prefs.getString(KEY_TOKEN, null)
 
     fun signOut() {
         prefs.edit().clear().apply()

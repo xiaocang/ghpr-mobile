@@ -17,6 +17,7 @@ class DataStoreSyncCacheStore(private val context: Context) {
 
     private val subscriptionsKey = stringPreferencesKey("subscriptions_json")
     private val historyKey = stringPreferencesKey("history_json")
+    private val openPrsKey = stringPreferencesKey("open_prs_json")
 
     suspend fun readSubscriptions(): List<String> {
         val raw = context.syncCacheDataStore.data.first()[subscriptionsKey].orEmpty()
@@ -45,6 +46,21 @@ class DataStoreSyncCacheStore(private val context: Context) {
     suspend fun writeHistory(items: List<ChangedPr>) {
         context.syncCacheDataStore.edit { prefs ->
             prefs[historyKey] = gson.toJson(items)
+        }
+    }
+
+    suspend fun readOpenPrs(): List<OpenPullRequest> {
+        val raw = context.syncCacheDataStore.data.first()[openPrsKey].orEmpty()
+        if (raw.isBlank()) return emptyList()
+        return runCatching {
+            val type = object : TypeToken<List<OpenPullRequest>>() {}.type
+            gson.fromJson<List<OpenPullRequest>>(raw, type).orEmpty()
+        }.getOrDefault(emptyList())
+    }
+
+    suspend fun writeOpenPrs(items: List<OpenPullRequest>) {
+        context.syncCacheDataStore.edit { prefs ->
+            prefs[openPrsKey] = gson.toJson(items)
         }
     }
 }
