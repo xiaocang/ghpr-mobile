@@ -28,6 +28,13 @@ FCM `data` payload fields:
 3. If app in foreground and visible list exists, trigger lightweight refresh.
 4. Otherwise refresh on next app open.
 
+## Data source expectations
+
+- GitHub OAuth is account identity only and does not directly return PR list content.
+- `GET /mobile/sync` returns data only when both are true:
+  - user has at least one subscribed `owner/repo`
+  - server has ingested matching PR webhook events into `pr_changes`
+
 
 ## Push service APIs
 

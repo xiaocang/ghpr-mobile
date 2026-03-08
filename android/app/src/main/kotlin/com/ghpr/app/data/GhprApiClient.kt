@@ -1,8 +1,10 @@
 package com.ghpr.app.data
 
+import android.util.Log
 import com.ghpr.app.auth.FirebaseAuthManager
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
+import org.json.JSONObject
 import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
@@ -70,6 +72,10 @@ class GhprApiClient(
     baseUrl: String,
     private val authManager: FirebaseAuthManager,
 ) {
+    companion object {
+        private const val TAG = "GhprApiClient"
+    }
+
     private val okhttp = OkHttpClient.Builder()
         .addInterceptor(authInterceptor())
         .build()
@@ -82,14 +88,62 @@ class GhprApiClient(
         .create(GhprApi::class.java)
 
     private fun authInterceptor() = Interceptor { chain ->
-        val token = kotlinx.coroutines.runBlocking { authManager.getIdToken() }
-        val request = if (token != null) {
-            chain.request().newBuilder()
-                .addHeader("Authorization", "Bearer $token")
-                .build()
-        } else {
-            chain.request()
+        val token = kotlinx.coroutines.runBlocking {
+            runCatching { authManager.ensureIdToken() }
+                .onFailure { Log.e(TAG, "Failed to obtain Firebase ID token", it) }
+                .getOrNull()
         }
-        chain.proceed(request)
+
+        val requestWithToken = chain.request().newBuilder().apply {
+            if (!token.isNullOrBlank()) {
+                header("Authorization", "Bearer $token")
+            }
+        }.build()
+
+        val response = chain.proceed(requestWithToken)
+        if (response.code != 401) {
+            return@Interceptor response
+        }
+
+        val refreshedToken = kotlinx.coroutines.runBlocking {
+            runCatching { authManager.ensureIdToken(forceRefresh = true) }
+                .onFailure { Log.e(TAG, "Failed to refresh Firebase ID token after 401", it) }
+                .getOrNull()
+        }
+
+        if (refreshedToken.isNullOrBlank()) {
+            return@Interceptor response
+        }
+
+        response.close()
+        val retryRequest = chain.request().newBuilder()
+            .header("Authorization", "Bearer $refreshedToken")
+            .build()
+        chain.proceed(retryRequest)
+    }
+}
+
+fun <T> Response<T>.toApiErrorMessage(fallbackPrefix: String): String {
+    if (code() == 401) {
+        return "Unauthorized (401): Firebase anonymous sign-in or Bearer token is invalid."
+    }
+
+    val serverError = try {
+        errorBody()?.string()
+            ?.takeIf { it.isNotBlank() }
+            ?.let { raw ->
+                runCatching { JSONObject(raw).optString("error") }
+                    .getOrDefault("")
+                    .trim()
+                    .ifBlank { null }
+            }
+    } catch (_: Exception) {
+        null
+    }
+
+    return if (serverError != null) {
+        "$fallbackPrefix (${code()}): $serverError"
+    } else {
+        "$fallbackPrefix (${code()})"
     }
 }

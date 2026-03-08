@@ -1,25 +1,28 @@
 package com.ghpr.app.ui.subscriptions
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Inbox
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -30,6 +33,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import com.ghpr.app.ui.components.EmptyStateView
+import com.ghpr.app.ui.components.ErrorStateView
+import com.ghpr.app.ui.theme.NeoButton
+import com.ghpr.app.ui.theme.NeoCard
+import com.ghpr.app.ui.theme.NeoFab
+import com.ghpr.app.ui.theme.NeoTextField
+import com.ghpr.app.ui.theme.neoTopBarBorder
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -40,29 +51,40 @@ fun SubscriptionsScreen(viewModel: SubscriptionsViewModel) {
     LaunchedEffect(Unit) { viewModel.load() }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Subscriptions") }) },
+        topBar = {
+            TopAppBar(
+                title = { Text("Subscriptions") },
+                modifier = Modifier.neoTopBarBorder(),
+            )
+        },
         floatingActionButton = {
-            FloatingActionButton(onClick = { showAddDialog = true }) {
-                Text("+")
+            NeoFab(onClick = { showAddDialog = true }) {
+                Icon(Icons.Default.Add, contentDescription = "Add subscription")
             }
         },
     ) { padding ->
-        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+        PullToRefreshBox(
+            isRefreshing = state.isRefreshing,
+            onRefresh = { viewModel.refresh() },
+            modifier = Modifier.fillMaxSize().padding(padding),
+        ) {
             when {
-                state.isLoading -> {
-                    CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-                }
-                state.error != null -> {
-                    Text(
-                        text = state.error!!,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.align(Alignment.Center).padding(16.dp),
+                state.isLoading && !state.isRefreshing -> {
+                    CircularProgressIndicator(
+                        modifier = Modifier.align(Alignment.Center),
                     )
                 }
-                state.subscriptions.isEmpty() -> {
-                    Text(
-                        text = "No subscriptions yet.\nTap + to add a repository.",
-                        modifier = Modifier.align(Alignment.Center).padding(16.dp),
+                state.error != null && !state.isRefreshing -> {
+                    ErrorStateView(
+                        message = state.error!!,
+                        onRetry = { viewModel.load() },
+                    )
+                }
+                state.subscriptions.isEmpty() && !state.isLoading -> {
+                    EmptyStateView(
+                        icon = Icons.Default.Inbox,
+                        title = "No subscriptions yet",
+                        subtitle = "Tap + to add a repository",
                     )
                 }
                 else -> {
@@ -92,14 +114,42 @@ fun SubscriptionsScreen(viewModel: SubscriptionsViewModel) {
 
 @Composable
 private fun SubscriptionItem(repo: String, onRemove: () -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
+    val parts = repo.split("/", limit = 2)
+    val owner = if (parts.size == 2) parts[0] else ""
+    val repoName = if (parts.size == 2) parts[1] else repo
+
+    NeoCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
     ) {
-        Text(text = repo, style = MaterialTheme.typography.bodyLarge)
-        IconButton(onClick = onRemove) {
-            Text("X", color = MaterialTheme.colorScheme.error)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                if (owner.isNotEmpty()) {
+                    Text(
+                        text = owner,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Text(
+                    text = repoName,
+                    style = MaterialTheme.typography.titleMedium,
+                )
+            }
+            IconButton(onClick = onRemove) {
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = "Remove",
+                    tint = MaterialTheme.colorScheme.error,
+                )
+            }
         }
     }
 }
@@ -108,28 +158,44 @@ private fun SubscriptionItem(repo: String, onRemove: () -> Unit) {
 private fun AddSubscriptionDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
     var text by remember { mutableStateOf("") }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Subscribe to repository") },
-        text = {
-            Column {
-                Text("Enter owner/repo (e.g. octocat/Hello-World)")
-                TextField(
+    Dialog(onDismissRequest = onDismiss) {
+        NeoCard {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Text(
+                    text = "Subscribe to repository",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "Enter owner/repo",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                NeoTextField(
                     value = text,
                     onValueChange = { text = it },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    modifier = Modifier.fillMaxWidth(),
                 )
+                Spacer(modifier = Modifier.height(16.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                ) {
+                    NeoButton(
+                        onClick = onDismiss,
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                    ) {
+                        Text("Cancel")
+                    }
+                    NeoButton(
+                        onClick = { onConfirm(text.trim()) },
+                        enabled = text.trim().contains("/"),
+                    ) {
+                        Text("Subscribe")
+                    }
+                }
             }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { onConfirm(text.trim()) },
-                enabled = text.trim().contains("/"),
-            ) { Text("Subscribe") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        },
-    )
+        }
+    }
 }

@@ -1,8 +1,43 @@
+import java.util.Properties
+import org.gradle.api.GradleException
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.gms.google-services")
+}
+
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) {
+        file.inputStream().use(::load)
+    }
+}
+
+val githubClientId = (
+    localProperties.getProperty("github.clientId")
+        ?: providers.gradleProperty("github.clientId").orNull
+).orEmpty()
+    .replace("\"", "\\\"")
+
+val configuredServerUrl = (
+    localProperties.getProperty("ghpr.serverUrl")
+        ?: providers.gradleProperty("ghpr.serverUrl").orNull
+).orEmpty().trim()
+val defaultServerUrl = "https://ghpr-server.xiaocang.workers.dev"
+val ghprServerUrl = (configuredServerUrl.ifBlank { defaultServerUrl })
+    .replace("\"", "\\\"")
+
+gradle.taskGraph.whenReady {
+    val buildingAppDebug = allTasks.any { task ->
+        task.path.startsWith(":app:") && task.path.contains("Debug", ignoreCase = true)
+    }
+    if (buildingAppDebug && configuredServerUrl.isBlank()) {
+        throw GradleException(
+            "Missing ghpr.serverUrl. Set it in android/local.properties or pass -Pghpr.serverUrl=... for debug builds."
+        )
+    }
 }
 
 android {
@@ -16,7 +51,8 @@ android {
         versionCode = 1
         versionName = "0.1.0"
 
-        buildConfigField("String", "GHPR_SERVER_URL", "\"https://ghpr-server.example.workers.dev\"")
+        buildConfigField("String", "GHPR_SERVER_URL", "\"$ghprServerUrl\"")
+        buildConfigField("String", "GITHUB_CLIENT_ID", "\"$githubClientId\"")
     }
 
     buildFeatures {
@@ -47,6 +83,7 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation("androidx.compose.material:material-icons-extended")
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     // AndroidX
@@ -57,9 +94,13 @@ dependencies {
     implementation("androidx.datastore:datastore-preferences:1.1.1")
     implementation("androidx.work:work-runtime-ktx:2.10.0")
     implementation("androidx.core:core-ktx:1.15.0")
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
     // Networking
     implementation("com.squareup.retrofit2:retrofit:2.11.0")
     implementation("com.squareup.retrofit2:converter-gson:2.11.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+    // Image loading
+    implementation("io.coil-kt:coil-compose:2.6.0")
 }

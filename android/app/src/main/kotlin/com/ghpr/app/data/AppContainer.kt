@@ -3,6 +3,7 @@ package com.ghpr.app.data
 import android.content.Context
 import com.ghpr.app.BuildConfig
 import com.ghpr.app.auth.FirebaseAuthManager
+import com.ghpr.app.auth.GitHubOAuthManager
 import com.ghpr.domain.push.HandlePushDataUseCase
 import com.ghpr.domain.push.PushDeliveryTracker
 import com.ghpr.domain.refresh.PushRefreshState
@@ -36,4 +37,10 @@ class AppContainer(context: Context) {
         baseUrl = BuildConfig.GHPR_SERVER_URL,
         authManager = authManager,
     )
+
+    val gitHubOAuthManager = GitHubOAuthManager(context)
+
+    val notificationSettingsStore = DataStoreNotificationSettingsStore(context)
+
+    val syncCacheStore = DataStoreSyncCacheStore(context)
 }

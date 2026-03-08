@@ -1,0 +1,291 @@
+package com.ghpr.app.ui.settings
+
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.filled.OpenInBrowser
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuAnchorType
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.unit.dp
+import com.ghpr.app.auth.GitHubAuthState
+import com.ghpr.app.ui.components.AvatarCircle
+import com.ghpr.app.ui.theme.NeoButton
+import com.ghpr.app.ui.theme.NeoCard
+import com.ghpr.app.ui.theme.neoTopBarBorder
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SettingsScreen(viewModel: SettingsViewModel) {
+    val state by viewModel.state.collectAsState()
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Settings") },
+                modifier = Modifier.neoTopBarBorder(),
+            )
+        },
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            // Account Section
+            SectionHeader("Account")
+            SettingsCard {
+                GitHubAccountSection(
+                    authState = state.gitHubAuthState,
+                    onLogin = viewModel::startGitHubLogin,
+                    onSignOut = viewModel::signOutGitHub,
+                )
+            }
+
+            // Refresh Section
+            SectionHeader("Refresh")
+            SettingsCard {
+                RefreshIntervalPicker(
+                    selectedMinutes = state.refreshIntervalMinutes,
+                    onSelect = viewModel::setRefreshInterval,
+                )
+            }
+
+            // Notifications Section
+            SectionHeader("Notifications")
+            SettingsCard {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Push notifications", style = MaterialTheme.typography.bodyLarge)
+                    Switch(
+                        checked = state.notificationsEnabled,
+                        onCheckedChange = viewModel::setNotificationsEnabled,
+                    )
+                }
+            }
+
+            // About Section
+            SectionHeader("About")
+            SettingsCard {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    InfoRow("App version", state.appVersion.ifEmpty { "0.1.0" })
+                    InfoRow("Server URL", state.serverBaseUrl)
+                    InfoRow("Firebase auth", state.firebaseAuthStatus)
+                    InfoRow("Firebase UID", state.firebaseUid ?: "Not signed in")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SectionHeader(title: String) {
+    Text(
+        text = title,
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary,
+    )
+}
+
+@Composable
+private fun SettingsCard(content: @Composable () -> Unit) {
+    NeoCard(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            content()
+        }
+    }
+}
+
+@Composable
+private fun GitHubAccountSection(
+    authState: GitHubAuthState,
+    onLogin: () -> Unit,
+    onSignOut: () -> Unit,
+) {
+    when (authState) {
+        is GitHubAuthState.SignedOut -> {
+            NeoButton(onClick = onLogin) {
+                Text("Connect GitHub Account")
+            }
+        }
+
+        is GitHubAuthState.Authenticating -> {
+            val clipboardManager = LocalClipboardManager.current
+            val context = LocalContext.current
+
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    text = "Enter this code on GitHub:",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = authState.userCode,
+                        style = MaterialTheme.typography.titleLarge,
+                    )
+                    IconButton(onClick = {
+                        clipboardManager.setText(AnnotatedString(authState.userCode))
+                    }) {
+                        Icon(Icons.Default.ContentCopy, contentDescription = "Copy code")
+                    }
+                }
+                NeoButton(
+                    onClick = {
+                        context.startActivity(
+                            Intent(Intent.ACTION_VIEW, Uri.parse(authState.verificationUri)),
+                        )
+                    },
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                ) {
+                    Icon(Icons.Default.OpenInBrowser, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Open GitHub")
+                }
+            }
+        }
+
+        is GitHubAuthState.Error -> {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    text = authState.message,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                )
+                NeoButton(onClick = onLogin) {
+                    Text("Retry GitHub Sign-In")
+                }
+            }
+        }
+
+        is GitHubAuthState.SignedIn -> {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    AvatarCircle(
+                        imageUrl = authState.avatarUrl,
+                        fallbackLetter = authState.login.firstOrNull() ?: 'G',
+                    )
+                    Text(
+                        text = authState.login,
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                }
+                IconButton(onClick = onSignOut) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.ExitToApp,
+                        contentDescription = "Sign out",
+                        tint = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RefreshIntervalPicker(
+    selectedMinutes: Int,
+    onSelect: (Int) -> Unit,
+) {
+    val options = listOf(5, 15, 30, 60)
+    var expanded by remember { mutableStateOf(false) }
+
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = it },
+    ) {
+        TextField(
+            value = "$selectedMinutes min",
+            onValueChange = {},
+            readOnly = true,
+            label = { Text("Refresh interval") },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .menuAnchor(MenuAnchorType.PrimaryNotEditable),
+        )
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            options.forEach { minutes ->
+                DropdownMenuItem(
+                    text = { Text("$minutes min") },
+                    onClick = {
+                        onSelect(minutes)
+                        expanded = false
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun InfoRow(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+        )
+    }
+}

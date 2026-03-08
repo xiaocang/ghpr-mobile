@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:slock.ai)",
+      "WebSearch",
+      "Bash(curl:*)"
+    ]
+  }
+}

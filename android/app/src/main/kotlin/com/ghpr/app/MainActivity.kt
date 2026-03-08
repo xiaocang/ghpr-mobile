@@ -29,14 +29,16 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun ensureSignedIn(app: GhprApplication) {
-        if (!app.container.authManager.isSignedIn) {
-            lifecycleScope.launch {
-                try {
-                    app.container.authManager.signInAnonymously()
-                    Log.i(TAG, "Signed in anonymously")
-                } catch (e: Exception) {
-                    Log.e(TAG, "Anonymous sign-in failed", e)
+        lifecycleScope.launch {
+            try {
+                val token = app.container.authManager.ensureIdToken()
+                if (token.isNullOrBlank()) {
+                    Log.e(TAG, "Firebase token unavailable after anonymous sign-in")
+                } else {
+                    Log.i(TAG, "Firebase auth ready")
                 }
+            } catch (e: Exception) {
+                Log.e(TAG, "Anonymous sign-in failed", e)
             }
         }
     }

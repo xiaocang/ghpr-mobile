@@ -14,5 +14,8 @@ server/.wrangler/
 *.iml
 .vscode/
 
+# Gradle user home cache
+.gradle-user-home/
+
 # OS
 .DS_Store

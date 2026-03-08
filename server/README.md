@@ -26,6 +26,16 @@ npm install
 npm run dev
 ```
 
+## D1 binding and schema
+
+- The Worker code expects D1 binding name `DB` in `wrangler.toml`.
+- Initialize schema on the same D1 database before testing protected APIs:
+
+```bash
+cd server
+npx wrangler d1 execute ghpr --remote --file=schema.sql
+```
+
 ## Required secrets
 
 - `GITHUB_WEBHOOK_SECRET`

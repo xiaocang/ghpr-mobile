@@ -112,13 +112,15 @@ export function resetJwksCache(): void {
   cachedJwks = null;
 }
 
-async function fetchGoogleJwks(): Promise<JwkKey[]> {
+async function fetchGoogleJwks(forceRefresh = false): Promise<JwkKey[]> {
   const now = Date.now();
-  if (cachedJwks && cachedJwks.expiresAt > now) {
+  if (!forceRefresh && cachedJwks && cachedJwks.expiresAt > now) {
     return cachedJwks.keys;
   }
 
-  const res = await fetch("https://www.googleapis.com/oauth2/v3/certs");
+  const res = await fetch(
+    "https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com"
+  );
   if (!res.ok) {
     throw new Error(`Failed to fetch Google JWKs: ${res.status}`);
   }
@@ -151,8 +153,13 @@ async function verifyFirebaseIdToken(token: string, env: Env): Promise<AuthResul
     throw new Error("Unsupported algorithm");
   }
 
-  const jwks = await fetchGoogleJwks();
-  const jwk = jwks.find((k) => k.kid === header.kid);
+  let jwks = await fetchGoogleJwks();
+  let jwk = jwks.find((k) => k.kid === header.kid);
+  if (!jwk) {
+    // Google key rotation can invalidate cached kids; refetch once before failing.
+    jwks = await fetchGoogleJwks(true);
+    jwk = jwks.find((k) => k.kid === header.kid);
+  }
   if (!jwk) {
     throw new Error("Unknown signing key");
   }
