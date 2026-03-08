@@ -7,7 +7,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -45,7 +45,7 @@ fun AppNavGraph(container: AppContainer) {
                         icon = {
                             Icon(
                                 imageVector = when (screen) {
-                                    Screen.Subscriptions -> Icons.Default.List
+                                    Screen.Subscriptions -> Icons.AutoMirrored.Filled.List
                                     Screen.History -> Icons.Default.Notifications
                                 },
                                 contentDescription = screen.label,
