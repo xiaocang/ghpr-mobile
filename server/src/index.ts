@@ -33,10 +33,6 @@ type SubscriptionBody = {
   repoFullName?: string;
 };
 
-type UserScopedQuery = {
-  userId: string;
-};
-
 type DeviceTokenRow = {
   token: string;
 };
@@ -65,7 +61,7 @@ type PRChangeRow = {
 
 const encoder = new TextEncoder();
 
-async function sha256HmacHex(secret: string, body: string): Promise<string> {
+export async function sha256HmacHex(secret: string, body: string): Promise<string> {
   const key = await crypto.subtle.importKey(
     "raw",
     encoder.encode(secret),
@@ -99,17 +95,157 @@ function normalizeRepoFullName(input: string): string {
   return input.trim().toLowerCase();
 }
 
-function requireInternalApiKey(request: Request, env: Env): Response | null {
-  if (!env.INTERNAL_API_KEY) {
-    return null;
+type AuthResult = { userId: string };
+
+type JwkKey = {
+  kid: string;
+  kty: string;
+  alg: string;
+  n: string;
+  e: string;
+  use: string;
+};
+
+let cachedJwks: { keys: JwkKey[]; expiresAt: number } | null = null;
+
+export function resetJwksCache(): void {
+  cachedJwks = null;
+}
+
+async function fetchGoogleJwks(): Promise<JwkKey[]> {
+  const now = Date.now();
+  if (cachedJwks && cachedJwks.expiresAt > now) {
+    return cachedJwks.keys;
   }
 
-  const provided = request.headers.get("x-api-key")?.trim() ?? "";
-  if (provided !== env.INTERNAL_API_KEY) {
-    return jsonResponse({ error: "unauthorized" }, 401);
+  const res = await fetch("https://www.googleapis.com/oauth2/v3/certs");
+  if (!res.ok) {
+    throw new Error(`Failed to fetch Google JWKs: ${res.status}`);
   }
 
-  return null;
+  const data = (await res.json()) as { keys: JwkKey[] };
+  const cacheControl = res.headers.get("cache-control") ?? "";
+  const maxAgeMatch = cacheControl.match(/max-age=(\d+)/);
+  const maxAge = maxAgeMatch ? parseInt(maxAgeMatch[1], 10) : 3600;
+
+  cachedJwks = { keys: data.keys, expiresAt: now + maxAge * 1000 };
+  return data.keys;
+}
+
+function decodeBase64Url(input: string): Uint8Array {
+  const base64 = input.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+  return Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
+}
+
+async function verifyFirebaseIdToken(token: string, env: Env): Promise<AuthResult> {
+  const parts = token.split(".");
+  if (parts.length !== 3) {
+    throw new Error("Invalid token format");
+  }
+
+  const headerJson = new TextDecoder().decode(decodeBase64Url(parts[0]));
+  const header = JSON.parse(headerJson) as { alg: string; kid: string };
+
+  if (header.alg !== "RS256") {
+    throw new Error("Unsupported algorithm");
+  }
+
+  const jwks = await fetchGoogleJwks();
+  const jwk = jwks.find((k) => k.kid === header.kid);
+  if (!jwk) {
+    throw new Error("Unknown signing key");
+  }
+
+  const key = await crypto.subtle.importKey(
+    "jwk",
+    jwk,
+    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+    false,
+    ["verify"]
+  );
+
+  const signatureData = encoder.encode(`${parts[0]}.${parts[1]}`);
+  const signature = decodeBase64Url(parts[2]);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const valid = await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, signature as any, signatureData as any);
+  if (!valid) {
+    throw new Error("Invalid signature");
+  }
+
+  const payloadJson = new TextDecoder().decode(decodeBase64Url(parts[1]));
+  const payload = JSON.parse(payloadJson) as {
+    iss: string;
+    aud: string;
+    sub: string;
+    exp: number;
+    iat: number;
+  };
+
+  const now = Math.floor(Date.now() / 1000);
+  if (payload.exp < now) {
+    throw new Error("Token expired");
+  }
+
+  if (payload.iat > now + 300) {
+    throw new Error("Token issued in the future");
+  }
+
+  const expectedIssuer = `https://securetoken.google.com/${env.FCM_PROJECT_ID}`;
+  if (payload.iss !== expectedIssuer) {
+    throw new Error("Invalid issuer");
+  }
+
+  if (payload.aud !== env.FCM_PROJECT_ID) {
+    throw new Error("Invalid audience");
+  }
+
+  if (!payload.sub) {
+    throw new Error("Missing subject");
+  }
+
+  return { userId: payload.sub };
+}
+
+async function requireAuth(request: Request, env: Env): Promise<AuthResult | Response> {
+  const apiKey = request.headers.get("x-api-key")?.trim() ?? "";
+  if (apiKey && env.INTERNAL_API_KEY && apiKey === env.INTERNAL_API_KEY) {
+    const url = new URL(request.url);
+    const userId = url.searchParams.get("userId")?.trim() ?? "";
+    if (userId) {
+      return { userId };
+    }
+    if (request.method === "POST" || request.method === "DELETE") {
+      try {
+        const cloned = request.clone();
+        const body = (await cloned.json()) as { userId?: string };
+        if (body.userId?.trim()) {
+          return { userId: body.userId.trim() };
+        }
+      } catch {
+        // fall through
+      }
+    }
+    return jsonResponse({ error: "userId required with api-key auth" }, 400);
+  }
+
+  const authHeader = request.headers.get("authorization") ?? "";
+  if (authHeader.startsWith("Bearer ")) {
+    const token = authHeader.slice(7).trim();
+    if (!token) {
+      return jsonResponse({ error: "empty bearer token" }, 401);
+    }
+    try {
+      return await verifyFirebaseIdToken(token, env);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "token verification failed";
+      console.error(`Auth failed: ${message}`);
+      return jsonResponse({ error: "unauthorized" }, 401);
+    }
+  }
+
+  return jsonResponse({ error: "unauthorized" }, 401);
 }
 
 function maskToken(token: string): string {
@@ -154,7 +290,7 @@ async function savePrChange(db: D1Database, payload: PushDataPayload): Promise<v
     .run();
 }
 
-function buildPushPayload(event: GitHubEvent, deliveryId: string): PushDataPayload | null {
+export function buildPushPayload(event: GitHubEvent, deliveryId: string): PushDataPayload | null {
   const repo = event.repository?.full_name?.trim() ?? "";
   const prNumber = event.pull_request?.number;
   const action = event.action?.trim() ?? "";
@@ -187,30 +323,163 @@ async function resolveDeviceTokensForRepo(db: D1Database, repoFullName: string):
   return (result.results ?? []).map((row) => row.token);
 }
 
-async function sendPushStub(_env: Env, payload: PushDataPayload, token: string): Promise<void> {
-  console.log(`Push stub token=${token} payload=${JSON.stringify(payload)}`);
+async function importPrivateKey(pem: string): Promise<CryptoKey> {
+  const cleaned = pem
+    .replace(/\\n/g, "\n")
+    .replace(/-----BEGIN PRIVATE KEY-----/, "")
+    .replace(/-----END PRIVATE KEY-----/, "")
+    .replace(/\s/g, "");
+  const binaryDer = Uint8Array.from(atob(cleaned), (c) => c.charCodeAt(0));
+  return crypto.subtle.importKey(
+    "pkcs8",
+    binaryDer,
+    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+}
+
+function base64url(input: string | ArrayBuffer): string {
+  const str =
+    typeof input === "string"
+      ? btoa(input)
+      : btoa(String.fromCharCode(...new Uint8Array(input)));
+  return str.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+async function generateServiceAccountJwt(env: Env): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  const header = { alg: "RS256", typ: "JWT" };
+  const payload = {
+    iss: env.FCM_CLIENT_EMAIL,
+    sub: env.FCM_CLIENT_EMAIL,
+    aud: "https://oauth2.googleapis.com/token",
+    iat: now,
+    exp: now + 3600,
+    scope: "https://www.googleapis.com/auth/firebase.messaging",
+  };
+  const unsignedToken = `${base64url(JSON.stringify(header))}.${base64url(JSON.stringify(payload))}`;
+  const key = await importPrivateKey(env.FCM_PRIVATE_KEY);
+  const signature = await crypto.subtle.sign(
+    "RSASSA-PKCS1-v1_5",
+    key,
+    encoder.encode(unsignedToken)
+  );
+  return `${unsignedToken}.${base64url(signature)}`;
+}
+
+export let cachedAccessToken: { token: string; expiresAt: number } | null = null;
+
+export function resetAccessTokenCache(): void {
+  cachedAccessToken = null;
+}
+
+async function getAccessToken(env: Env): Promise<string> {
+  const now = Date.now();
+  if (cachedAccessToken && cachedAccessToken.expiresAt > now) {
+    return cachedAccessToken.token;
+  }
+
+  const jwt = await generateServiceAccountJwt(env);
+  const res = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: `grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=${jwt}`,
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`OAuth token exchange failed (${res.status}): ${text}`);
+  }
+
+  const data = (await res.json()) as { access_token: string; expires_in: number };
+  cachedAccessToken = {
+    token: data.access_token,
+    expiresAt: now + (data.expires_in - 300) * 1000,
+  };
+  return data.access_token;
+}
+
+type FcmSendResult = { success: true } | { success: false; reason: string; deleteToken: boolean };
+
+async function sendFcmPush(
+  env: Env,
+  payload: PushDataPayload,
+  token: string
+): Promise<FcmSendResult> {
+  const accessToken = await getAccessToken(env);
+  const fcmUrl = `https://fcm.googleapis.com/v1/projects/${env.FCM_PROJECT_ID}/messages:send`;
+
+  const res = await fetch(fcmUrl, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      message: {
+        token,
+        data: {
+          type: payload.type,
+          repo: payload.repo,
+          prNumber: payload.prNumber,
+          action: payload.action,
+          deliveryId: payload.deliveryId,
+          sentAt: payload.sentAt,
+        },
+      },
+    }),
+  });
+
+  if (res.ok) {
+    return { success: true };
+  }
+
+  const errorBody = (await res.json().catch(() => ({}))) as {
+    error?: { code?: number; status?: string; message?: string };
+  };
+  const errorStatus = errorBody.error?.status ?? "";
+  const errorMessage = errorBody.error?.message ?? `HTTP ${res.status}`;
+
+  if (errorStatus === "UNREGISTERED" || errorStatus === "INVALID_ARGUMENT") {
+    console.warn(`FCM token invalid (${errorStatus}), removing: ${maskToken(token)}`);
+    return { success: false, reason: errorStatus, deleteToken: true };
+  }
+
+  if (res.status === 429) {
+    console.warn(`FCM rate limited for token ${maskToken(token)}`);
+    return { success: false, reason: "RATE_LIMITED", deleteToken: false };
+  }
+
+  console.error(`FCM send failed (${res.status}): ${errorMessage}`);
+  return { success: false, reason: errorMessage, deleteToken: false };
 }
 
 async function fanOutPush(env: Env, payload: PushDataPayload): Promise<number> {
   const tokens = await resolveDeviceTokensForRepo(env.DB, payload.repo);
   for (const token of tokens) {
-    await sendPushStub(env, payload, token);
+    const result = await sendFcmPush(env, payload, token);
+    if (!result.success && result.deleteToken) {
+      await env.DB
+        .prepare("DELETE FROM device_tokens WHERE token = ?")
+        .bind(token)
+        .run();
+    }
   }
   return tokens.length;
 }
 
-async function handleRegisterDevice(request: Request, env: Env): Promise<Response> {
+async function handleRegisterDevice(request: Request, env: Env, userId: string): Promise<Response> {
   const body = await parseJsonBody<DeviceRegisterBody>(request);
   if (!body) {
     return jsonResponse({ error: "invalid json" }, 400);
   }
 
-  const userId = body.userId?.trim() ?? "";
   const token = body.token?.trim() ?? "";
   const platform = body.platform?.trim() || "android";
 
-  if (!userId || !token) {
-    return jsonResponse({ error: "userId and token are required" }, 400);
+  if (!token) {
+    return jsonResponse({ error: "token is required" }, 400);
   }
 
   await env.DB
@@ -227,16 +496,15 @@ async function handleRegisterDevice(request: Request, env: Env): Promise<Respons
   return jsonResponse({ ok: true });
 }
 
-async function handleSubscribeRepo(request: Request, env: Env): Promise<Response> {
+async function handleSubscribeRepo(request: Request, env: Env, userId: string): Promise<Response> {
   const body = await parseJsonBody<SubscriptionBody>(request);
   if (!body) {
     return jsonResponse({ error: "invalid json" }, 400);
   }
 
-  const userId = body.userId?.trim() ?? "";
   const repoFullName = normalizeRepoFullName(body.repoFullName ?? "");
-  if (!userId || !repoFullName) {
-    return jsonResponse({ error: "userId and repoFullName are required" }, 400);
+  if (!repoFullName) {
+    return jsonResponse({ error: "repoFullName is required" }, 400);
   }
 
   await env.DB
@@ -251,16 +519,7 @@ async function handleSubscribeRepo(request: Request, env: Env): Promise<Response
   return jsonResponse({ ok: true });
 }
 
-function getRequiredUserIdFromQuery(url: URL): string {
-  return url.searchParams.get("userId")?.trim() ?? "";
-}
-
-async function handleListSubscriptions(url: URL, env: Env): Promise<Response> {
-  const userId = getRequiredUserIdFromQuery(url);
-  if (!userId) {
-    return jsonResponse({ error: "userId is required" }, 400);
-  }
-
+async function handleListSubscriptions(env: Env, userId: string): Promise<Response> {
   const result = await env.DB
     .prepare(
       `SELECT repo_full_name
@@ -278,12 +537,7 @@ async function handleListSubscriptions(url: URL, env: Env): Promise<Response> {
   });
 }
 
-async function handleListDevices(url: URL, env: Env): Promise<Response> {
-  const userId = getRequiredUserIdFromQuery(url);
-  if (!userId) {
-    return jsonResponse({ error: "userId is required" }, 400);
-  }
-
+async function handleListDevices(env: Env, userId: string): Promise<Response> {
   const result = await env.DB
     .prepare(
       `SELECT token, platform
@@ -304,16 +558,15 @@ async function handleListDevices(url: URL, env: Env): Promise<Response> {
   });
 }
 
-async function handleUnregisterDevice(request: Request, env: Env): Promise<Response> {
+async function handleUnregisterDevice(request: Request, env: Env, userId: string): Promise<Response> {
   const body = await parseJsonBody<DeviceRegisterBody>(request);
   if (!body) {
     return jsonResponse({ error: "invalid json" }, 400);
   }
 
-  const userId = body.userId?.trim() ?? "";
   const token = body.token?.trim() ?? "";
-  if (!userId || !token) {
-    return jsonResponse({ error: "userId and token are required" }, 400);
+  if (!token) {
+    return jsonResponse({ error: "token is required" }, 400);
   }
 
   await env.DB
@@ -324,16 +577,15 @@ async function handleUnregisterDevice(request: Request, env: Env): Promise<Respo
   return jsonResponse({ ok: true });
 }
 
-async function handleUnsubscribeRepo(request: Request, env: Env): Promise<Response> {
+async function handleUnsubscribeRepo(request: Request, env: Env, userId: string): Promise<Response> {
   const body = await parseJsonBody<SubscriptionBody>(request);
   if (!body) {
     return jsonResponse({ error: "invalid json" }, 400);
   }
 
-  const userId = body.userId?.trim() ?? "";
   const repoFullName = normalizeRepoFullName(body.repoFullName ?? "");
-  if (!userId || !repoFullName) {
-    return jsonResponse({ error: "userId and repoFullName are required" }, 400);
+  if (!repoFullName) {
+    return jsonResponse({ error: "repoFullName is required" }, 400);
   }
 
   await env.DB
@@ -396,12 +648,7 @@ function parsePositiveInt(value: string | null, defaultValue: number): number {
   return Math.floor(parsed);
 }
 
-async function handleMobileSync(url: URL, env: Env): Promise<Response> {
-  const userId = getRequiredUserIdFromQuery(url);
-  if (!userId) {
-    return jsonResponse({ error: "userId is required" }, 400);
-  }
-
+async function handleMobileSync(url: URL, env: Env, userId: string): Promise<Response> {
   const since = parsePositiveInt(url.searchParams.get("since"), 0);
   const cursorDeliveryId = url.searchParams.get("cursorDeliveryId")?.trim() ?? "";
   const limit = Math.min(parsePositiveInt(url.searchParams.get("limit"), 100), 200);
@@ -474,50 +721,44 @@ export default {
       return jsonResponse({ ok: true, service: "ghpr-server" });
     }
 
-    if (request.method === "POST" && url.pathname === "/devices/register") {
-      const authError = requireInternalApiKey(request, env);
-      if (authError) return authError;
-      return handleRegisterDevice(request, env);
-    }
-
-    if (request.method === "DELETE" && url.pathname === "/devices/register") {
-      const authError = requireInternalApiKey(request, env);
-      if (authError) return authError;
-      return handleUnregisterDevice(request, env);
-    }
-
-    if (request.method === "GET" && url.pathname === "/devices") {
-      const authError = requireInternalApiKey(request, env);
-      if (authError) return authError;
-      return handleListDevices(url, env);
-    }
-
-    if (request.method === "POST" && url.pathname === "/subscriptions") {
-      const authError = requireInternalApiKey(request, env);
-      if (authError) return authError;
-      return handleSubscribeRepo(request, env);
-    }
-
-    if (request.method === "GET" && url.pathname === "/subscriptions") {
-      const authError = requireInternalApiKey(request, env);
-      if (authError) return authError;
-      return handleListSubscriptions(url, env);
-    }
-
-    if (request.method === "DELETE" && url.pathname === "/subscriptions") {
-      const authError = requireInternalApiKey(request, env);
-      if (authError) return authError;
-      return handleUnsubscribeRepo(request, env);
-    }
-
     if (request.method === "POST" && url.pathname === "/github/webhook") {
       return handleWebhook(request, env);
     }
 
-    if (request.method === "GET" && url.pathname === "/mobile/sync") {
-      const authError = requireInternalApiKey(request, env);
-      if (authError) return authError;
-      return handleMobileSync(url, env);
+    const protectedRoutes: Record<string, Record<string, true>> = {
+      "/devices/register": { POST: true, DELETE: true },
+      "/devices": { GET: true },
+      "/subscriptions": { POST: true, GET: true, DELETE: true },
+      "/mobile/sync": { GET: true },
+    };
+
+    const routeMethods = protectedRoutes[url.pathname];
+    if (routeMethods && routeMethods[request.method]) {
+      const authResult = await requireAuth(request, env);
+      if (authResult instanceof Response) return authResult;
+      const { userId } = authResult;
+
+      if (url.pathname === "/devices/register" && request.method === "POST") {
+        return handleRegisterDevice(request, env, userId);
+      }
+      if (url.pathname === "/devices/register" && request.method === "DELETE") {
+        return handleUnregisterDevice(request, env, userId);
+      }
+      if (url.pathname === "/devices" && request.method === "GET") {
+        return handleListDevices(env, userId);
+      }
+      if (url.pathname === "/subscriptions" && request.method === "POST") {
+        return handleSubscribeRepo(request, env, userId);
+      }
+      if (url.pathname === "/subscriptions" && request.method === "GET") {
+        return handleListSubscriptions(env, userId);
+      }
+      if (url.pathname === "/subscriptions" && request.method === "DELETE") {
+        return handleUnsubscribeRepo(request, env, userId);
+      }
+      if (url.pathname === "/mobile/sync" && request.method === "GET") {
+        return handleMobileSync(url, env, userId);
+      }
     }
 
     return jsonResponse({ error: "not found" }, 404);

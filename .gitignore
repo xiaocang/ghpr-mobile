@@ -1,0 +1,18 @@
+# Android
+android/.gradle/
+android/build/
+android/*/build/
+android/local.properties
+android/app/google-services.json
+
+# Node
+server/node_modules/
+server/.wrangler/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
