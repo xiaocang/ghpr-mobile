@@ -20,6 +20,7 @@ data class RegisterDeviceRequest(val token: String, val platform: String = "andr
 data class SubscribeRepoRequest(val repoFullName: String)
 data class UnsubscribeRepoRequest(val repoFullName: String)
 data class UnregisterDeviceRequest(val token: String)
+data class StoreGitHubTokenRequest(val githubToken: String, val githubLogin: String)
 
 data class DeviceInfo(val platform: String, val tokenPreview: String)
 data class DevicesResponse(val ok: Boolean, val devices: List<DeviceInfo>)
@@ -66,6 +67,12 @@ interface GhprApi {
         @Query("cursorDeliveryId") cursorDeliveryId: String = "",
         @Query("limit") limit: Int = 100,
     ): Response<SyncResponse>
+
+    @POST("github-token")
+    suspend fun storeGitHubToken(@Body body: StoreGitHubTokenRequest): Response<ApiResult>
+
+    @HTTP(method = "DELETE", path = "github-token", hasBody = false)
+    suspend fun deleteGitHubToken(): Response<ApiResult>
 }
 
 class GhprApiClient(

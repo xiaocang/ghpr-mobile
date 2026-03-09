@@ -17,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.OpenInBrowser
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -25,9 +26,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -43,6 +46,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import com.ghpr.app.auth.GitHubAuthState
+import com.ghpr.app.data.PollingMode
 import com.ghpr.app.ui.components.AvatarCircle
 import com.ghpr.app.ui.theme.NeoButton
 import com.ghpr.app.ui.theme.NeoCard
@@ -102,6 +106,21 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                         onCheckedChange = viewModel::setNotificationsEnabled,
                     )
                 }
+            }
+
+            // Notification Mode Section
+            SectionHeader("Notification Mode")
+            SettingsCard {
+                NotificationModePicker(
+                    selectedMode = state.pollingMode,
+                    onSelect = viewModel::requestPollingMode,
+                )
+            }
+            if (state.showServerModeConfirmDialog) {
+                ServerModeConfirmDialog(
+                    onConfirm = viewModel::confirmServerMode,
+                    onDismiss = viewModel::dismissServerModeDialog,
+                )
             }
 
             // About Section
@@ -270,6 +289,75 @@ private fun RefreshIntervalPicker(
             }
         }
     }
+}
+
+@Composable
+private fun NotificationModePicker(
+    selectedMode: PollingMode,
+    onSelect: (PollingMode) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        PollingMode.entries.forEach { mode ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                RadioButton(
+                    selected = selectedMode == mode,
+                    onClick = { onSelect(mode) },
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text(
+                        text = when (mode) {
+                            PollingMode.CLIENT -> "Client polling"
+                            PollingMode.SERVER -> "Server polling"
+                            PollingMode.OFF -> "Off"
+                        },
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    Text(
+                        text = when (mode) {
+                            PollingMode.CLIENT -> "Poll GitHub every 15 min from device"
+                            PollingMode.SERVER -> "Server polls every 5 min (sends token to server)"
+                            PollingMode.OFF -> "No background notifications"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ServerModeConfirmDialog(
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Enable server polling?") },
+        text = {
+            Text(
+                "This will send your GitHub token to the server for encrypted storage. " +
+                    "The server will poll GitHub on your behalf every 5 minutes for more timely notifications."
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text("Enable")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        },
+    )
 }
 
 @Composable

@@ -12,6 +12,7 @@ export default defineWorkersConfig({
             FCM_CLIENT_EMAIL: "test@test.iam.gserviceaccount.com",
             FCM_PRIVATE_KEY: "test-private-key",
             INTERNAL_API_KEY: "test-api-key",
+            GITHUB_TOKEN_ENCRYPTION_KEY: "KioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKio=",
           },
         },
       },

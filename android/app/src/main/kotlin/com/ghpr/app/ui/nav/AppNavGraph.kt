@@ -129,6 +129,10 @@ fun AppNavGraph(container: AppContainer) {
                         firebaseAuthManager = container.authManager,
                         serverBaseUrl = BuildConfig.GHPR_SERVER_URL,
                         appVersion = BuildConfig.VERSION_NAME,
+                        pollingModeStore = container.pollingModeStore,
+                        pollingScheduler = container.pollingScheduler,
+                        apiClient = container.apiClient,
+                        applicationContext = navController.context.applicationContext,
                     )
                 }
                 SettingsScreen(

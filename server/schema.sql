@@ -31,3 +31,12 @@ CREATE TABLE IF NOT EXISTS pr_changes (
 CREATE INDEX IF NOT EXISTS idx_device_tokens_user_id ON device_tokens (user_id);
 CREATE INDEX IF NOT EXISTS idx_repo_subscriptions_repo ON repo_subscriptions (repo_full_name);
 CREATE INDEX IF NOT EXISTS idx_pr_changes_repo_changed_at ON pr_changes (repo_full_name, changed_at_ms);
+
+CREATE TABLE IF NOT EXISTS user_github_tokens (
+  user_id TEXT PRIMARY KEY,
+  encrypted_token TEXT NOT NULL,
+  github_login TEXT NOT NULL,
+  last_poll_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);

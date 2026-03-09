@@ -45,4 +45,8 @@ class AppContainer(context: Context) {
     val notificationSettingsStore = DataStoreNotificationSettingsStore(context)
 
     val syncCacheStore = DataStoreSyncCacheStore(context)
+
+    val pollingModeStore = DataStorePollingModeStore(context)
+
+    val pollingScheduler = PollingScheduler(context)
 }

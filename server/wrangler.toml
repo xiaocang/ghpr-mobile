@@ -9,3 +9,6 @@ enabled = true
 binding = "DB"
 database_name = "ghpr"
 database_id = "079f40b8-aa1f-4495-a89a-0d54546c16f1"
+
+[triggers]
+crons = ["*/5 * * * *"]
