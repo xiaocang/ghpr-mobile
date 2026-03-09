@@ -82,6 +82,11 @@ data class GhprStatusColors(
     val link: Color = Color(0xFF0969DA),
     val success: Color = Color(0xFF2DA44E),
     val failure: Color = Color(0xFFCF222E),
+    val commented: Color = Color(0xFF0969DA),
+    val mentioned: Color = Color(0xFFE16F24),
+    val assigned: Color = Color(0xFF1B7C83),
+    val updated: Color = Color(0xFF57606A),
+    val stateChanged: Color = Color(0xFFBF3989),
 )
 
 @Immutable
@@ -93,6 +98,11 @@ data class GhprStatusColorsDark(
     val link: Color = Color(0xFF58A6FF),
     val success: Color = Color(0xFF3FB950),
     val failure: Color = Color(0xFFF85149),
+    val commented: Color = Color(0xFF58A6FF),
+    val mentioned: Color = Color(0xFFF0883E),
+    val assigned: Color = Color(0xFF39C5CF),
+    val updated: Color = Color(0xFF8B949E),
+    val stateChanged: Color = Color(0xFFDB61A2),
 )
 
 val LocalGhprStatusColors = staticCompositionLocalOf { GhprStatusColors() }

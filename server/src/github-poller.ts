@@ -102,6 +102,81 @@ async function pollNotificationsForUser(
   return notifications.filter((n) => n.subject.type === "PullRequest");
 }
 
+type PrMetadata = {
+  author: string;
+  requestedReviewers: string[];
+};
+
+async function fetchPrMetadata(
+  token: string,
+  repo: string,
+  prNumber: number
+): Promise<PrMetadata> {
+  const res = await fetch(
+    `https://api.github.com/repos/${repo}/pulls/${prNumber}`,
+    {
+      headers: {
+        authorization: `Bearer ${token}`,
+        accept: "application/vnd.github+json",
+        "user-agent": "ghpr-server/1.0",
+        "x-github-api-version": "2022-11-28",
+      },
+    }
+  );
+
+  if (!res.ok) {
+    throw new Error(`GitHub PR API error: ${res.status}`);
+  }
+
+  const data = (await res.json()) as {
+    user?: { login?: string };
+    requested_reviewers?: Array<{ login?: string }>;
+  };
+
+  return {
+    author: data.user?.login?.trim().toLowerCase() ?? "",
+    requestedReviewers: (data.requested_reviewers ?? [])
+      .map((r) => r.login?.trim().toLowerCase() ?? "")
+      .filter(Boolean),
+  };
+}
+
+async function savePrInvolvementFromPoller(
+  db: D1Database,
+  repo: string,
+  prNumber: number,
+  meta: PrMetadata,
+  currentUserLogin?: string,
+  reason?: string
+): Promise<void> {
+  const now = Date.now();
+  const upsertSql = `INSERT INTO pr_user_involvement (repo_full_name, pr_number, github_login, role, updated_at_ms)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(repo_full_name, pr_number, github_login, role)
+     DO UPDATE SET updated_at_ms = excluded.updated_at_ms`;
+
+  const stmts: D1PreparedStatement[] = [];
+
+  if (meta.author) {
+    stmts.push(db.prepare(upsertSql).bind(repo, prNumber, meta.author, "author", now));
+  }
+
+  for (const login of meta.requestedReviewers) {
+    stmts.push(db.prepare(upsertSql).bind(repo, prNumber, login, "reviewer", now));
+  }
+
+  // Record mention from notification reason
+  if (currentUserLogin && reason === "mention") {
+    stmts.push(
+      db.prepare(upsertSql).bind(repo, prNumber, currentUserLogin.toLowerCase(), "mentioned", now)
+    );
+  }
+
+  if (stmts.length > 0) {
+    await db.batch(stmts);
+  }
+}
+
 export async function pollAllUsers(env: Env): Promise<void> {
   const startTime = Date.now();
   const users = await env.DB.prepare(
@@ -190,6 +265,32 @@ export async function pollAllUsers(env: Env): Promise<void> {
       )
         .bind(deliveryId, repoName, prNumber, action, changedAtMs)
         .run();
+
+      // Check if involvement exists for this PR; if not, fetch metadata
+      const existingInvolvement = await env.DB.prepare(
+        "SELECT 1 FROM pr_user_involvement WHERE repo_full_name = ? AND pr_number = ? LIMIT 1"
+      )
+        .bind(repoName, prNumber)
+        .first<{ 1: number }>();
+
+      if (!existingInvolvement) {
+        try {
+          const meta = await fetchPrMetadata(plainToken, repoName, prNumber);
+          await savePrInvolvementFromPoller(
+            env.DB, repoName, prNumber, meta,
+            user.github_login, notif.reason
+          );
+        } catch (err) {
+          console.error(`Failed to fetch PR metadata for ${repoName}#${prNumber}:`, err);
+        }
+      } else if (notif.reason === "mention") {
+        // Still record mention even if involvement exists
+        await savePrInvolvementFromPoller(
+          env.DB, repoName, prNumber,
+          { author: "", requestedReviewers: [] },
+          user.github_login, notif.reason
+        );
+      }
 
       // Send FCM push to all user devices
       const deviceTokens = await resolveDeviceTokensForUser(

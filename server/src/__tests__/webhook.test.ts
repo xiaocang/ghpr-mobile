@@ -191,10 +191,11 @@ describe("POST /github/webhook", () => {
   it("fans out push to subscribed devices", async () => {
     await env.DB.exec(
       `INSERT INTO device_tokens (user_id, token, platform) VALUES ('u1', 'tok-1', 'android');
-       INSERT INTO repo_subscriptions (user_id, repo_full_name) VALUES ('u1', 'owner/repo');`
+       INSERT INTO repo_subscriptions (user_id, repo_full_name) VALUES ('u1', 'owner/repo');
+       INSERT INTO user_github_tokens (user_id, encrypted_token, github_login) VALUES ('u1', 'enc-tok', 'testuser');`
     );
 
-    const req = await webhookRequest(makePrEvent("owner/repo", 5, "opened"), {
+    const req = await webhookRequest(makePrEvent("owner/repo", 5, "opened", "testuser"), {
       deliveryId: "fan-1",
     });
     const res = await SELF.fetch(req);

@@ -12,6 +12,9 @@ export async function initSchema(): Promise<void> {
   await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_repo_subscriptions_repo ON repo_subscriptions (repo_full_name)");
   await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_pr_changes_repo_changed_at ON pr_changes (repo_full_name, changed_at_ms)");
   await env.DB.exec("CREATE TABLE IF NOT EXISTS user_github_tokens (user_id TEXT PRIMARY KEY, encrypted_token TEXT NOT NULL, github_login TEXT NOT NULL, last_poll_at TEXT, last_poll_status TEXT, last_poll_error TEXT, last_poll_success_at TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')))");
+  await env.DB.exec("CREATE TABLE IF NOT EXISTS pr_user_involvement (id INTEGER PRIMARY KEY AUTOINCREMENT, repo_full_name TEXT NOT NULL, pr_number INTEGER NOT NULL, github_login TEXT NOT NULL, role TEXT NOT NULL, updated_at_ms INTEGER NOT NULL)");
+  await env.DB.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_pr_involvement_unique ON pr_user_involvement (repo_full_name, pr_number, github_login, role)");
+  await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_pr_involvement_login ON pr_user_involvement (github_login)");
 }
 
 export async function resetDb(): Promise<void> {
@@ -20,7 +23,8 @@ export async function resetDb(): Promise<void> {
      DELETE FROM repo_subscriptions;
      DELETE FROM device_tokens;
      DELETE FROM webhook_deliveries;
-     DELETE FROM user_github_tokens;`
+     DELETE FROM user_github_tokens;
+     DELETE FROM pr_user_involvement;`
   );
 }
 
@@ -80,7 +84,8 @@ export function apiHeaders(apiKey = "test-api-key"): Record<string, string> {
 export function makePrEvent(
   repo = "owner/repo",
   prNumber = 42,
-  action = "opened"
+  action = "opened",
+  author = "testuser"
 ): object {
   return {
     action,
@@ -89,6 +94,7 @@ export function makePrEvent(
       number: prNumber,
       html_url: `https://github.com/${repo}/pull/${prNumber}`,
       title: `PR #${prNumber}`,
+      user: { login: author },
     },
   };
 }

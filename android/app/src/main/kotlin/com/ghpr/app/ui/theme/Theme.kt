@@ -91,6 +91,11 @@ fun GhprTheme(
             link = dark.link,
             success = dark.success,
             failure = dark.failure,
+            commented = dark.commented,
+            mentioned = dark.mentioned,
+            assigned = dark.assigned,
+            updated = dark.updated,
+            stateChanged = dark.stateChanged,
         )
     } else {
         GhprStatusColors()

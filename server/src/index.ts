@@ -25,7 +25,15 @@ export interface Env {
 type GitHubEvent = {
   action?: string;
   repository?: { full_name?: string };
-  pull_request?: { number?: number; html_url?: string; title?: string; merged?: boolean };
+  pull_request?: {
+    number?: number;
+    html_url?: string;
+    title?: string;
+    merged?: boolean;
+    user?: { login?: string };
+    requested_reviewers?: Array<{ login?: string }>;
+  };
+  requested_reviewer?: { login?: string };
 };
 
 type DeviceRegisterBody = {
@@ -316,6 +324,43 @@ async function savePrChange(db: D1Database, payload: PushDataPayload): Promise<v
     .run();
 }
 
+async function savePrInvolvement(db: D1Database, event: GitHubEvent): Promise<void> {
+  const repo = event.repository?.full_name?.trim().toLowerCase() ?? "";
+  const prNumber = event.pull_request?.number;
+  if (!repo || !prNumber) return;
+
+  const now = Date.now();
+  const stmts: D1PreparedStatement[] = [];
+  const upsertSql = `INSERT INTO pr_user_involvement (repo_full_name, pr_number, github_login, role, updated_at_ms)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(repo_full_name, pr_number, github_login, role)
+     DO UPDATE SET updated_at_ms = excluded.updated_at_ms`;
+
+  // Author
+  const author = event.pull_request?.user?.login?.trim().toLowerCase();
+  if (author) {
+    stmts.push(db.prepare(upsertSql).bind(repo, prNumber, author, "author", now));
+  }
+
+  // Requested reviewers from PR payload
+  for (const r of event.pull_request?.requested_reviewers ?? []) {
+    const login = r.login?.trim().toLowerCase();
+    if (login) {
+      stmts.push(db.prepare(upsertSql).bind(repo, prNumber, login, "reviewer", now));
+    }
+  }
+
+  // Specific requested_reviewer from review_requested action
+  const reqReviewer = event.requested_reviewer?.login?.trim().toLowerCase();
+  if (reqReviewer) {
+    stmts.push(db.prepare(upsertSql).bind(repo, prNumber, reqReviewer, "reviewer", now));
+  }
+
+  if (stmts.length > 0) {
+    await db.batch(stmts);
+  }
+}
+
 export function buildPushPayload(event: GitHubEvent, deliveryId: string): PushDataPayload | null {
   const repo = event.repository?.full_name?.trim() ?? "";
   const prNumber = event.pull_request?.number;
@@ -338,22 +383,27 @@ export function buildPushPayload(event: GitHubEvent, deliveryId: string): PushDa
   };
 }
 
-async function resolveDeviceTokensForRepo(db: D1Database, repoFullName: string): Promise<string[]> {
+async function resolveDeviceTokensForPr(db: D1Database, repoFullName: string, prNumber: number): Promise<string[]> {
   const result = await db
     .prepare(
-      `SELECT dt.token AS token
+      `SELECT DISTINCT dt.token AS token
        FROM repo_subscriptions rs
        JOIN device_tokens dt ON dt.user_id = rs.user_id
+       JOIN user_github_tokens ugt ON ugt.user_id = rs.user_id
+       JOIN pr_user_involvement pui
+         ON pui.repo_full_name = rs.repo_full_name
+         AND pui.pr_number = ?
+         AND LOWER(pui.github_login) = LOWER(ugt.github_login)
        WHERE rs.repo_full_name = ?`
     )
-    .bind(repoFullName)
+    .bind(prNumber, repoFullName)
     .all<DeviceTokenRow>();
 
   return (result.results ?? []).map((row) => row.token);
 }
 
 async function fanOutPush(env: Env, payload: PushDataPayload): Promise<number> {
-  const tokens = await resolveDeviceTokensForRepo(env.DB, payload.repo);
+  const tokens = await resolveDeviceTokensForPr(env.DB, payload.repo, Number(payload.prNumber));
   for (const token of tokens) {
     try {
       const result = await sendFcmPush(env, payload, token);
@@ -621,6 +671,7 @@ async function handleWebhook(request: Request, env: Env): Promise<Response> {
   }
 
   await savePrChange(env.DB, payload);
+  await savePrInvolvement(env.DB, parsed);
 
   const fanOutCount = await fanOutPush(env, payload);
   return jsonResponse({ ok: true, fanOutCount });
@@ -646,7 +697,13 @@ async function handleMobileSync(url: URL, env: Env, userId: string): Promise<Res
          SELECT pc.delivery_id, pc.repo_full_name, pc.pr_number, pc.action, pc.changed_at_ms
          FROM pr_changes pc
          JOIN repo_subscriptions rs ON rs.repo_full_name = pc.repo_full_name
+         LEFT JOIN user_github_tokens ugt ON ugt.user_id = rs.user_id
+         LEFT JOIN pr_user_involvement pui
+           ON pui.repo_full_name = pc.repo_full_name
+           AND pui.pr_number = pc.pr_number
+           AND LOWER(pui.github_login) = LOWER(ugt.github_login)
          WHERE rs.user_id = ?
+           AND (ugt.user_id IS NULL OR pui.github_login IS NOT NULL)
            AND (pc.changed_at_ms > ? OR (pc.changed_at_ms = ? AND pc.delivery_id > ?))
        ), ranked AS (
          SELECT
@@ -664,7 +721,7 @@ async function handleMobileSync(url: URL, env: Env, userId: string): Promise<Res
        SELECT delivery_id, repo_full_name, pr_number, action, changed_at_ms
        FROM ranked
        WHERE row_num = 1
-       ORDER BY changed_at_ms ASC, delivery_id ASC
+       ORDER BY changed_at_ms DESC, delivery_id DESC
        LIMIT ?`
     )
     .bind(userId, since, since, cursorDeliveryId, queryLimit)

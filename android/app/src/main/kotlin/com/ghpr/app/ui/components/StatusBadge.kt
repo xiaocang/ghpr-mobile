@@ -42,7 +42,12 @@ fun actionStatusColor(action: String): Color {
         "opened" -> statusColors.opened
         "closed" -> statusColors.closed
         "merged" -> statusColors.merged
-        "review_requested", "commented", "mentioned", "assigned", "state_changed", "updated" -> statusColors.pending
+        "review_requested" -> statusColors.pending
+        "commented" -> statusColors.commented
+        "mentioned" -> statusColors.mentioned
+        "assigned" -> statusColors.assigned
+        "updated" -> statusColors.updated
+        "state_changed" -> statusColors.stateChanged
         else -> statusColors.link
     }
 }
