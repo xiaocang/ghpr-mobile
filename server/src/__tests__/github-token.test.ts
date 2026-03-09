@@ -139,3 +139,65 @@ describe("DELETE /github-token", () => {
     expect(res.status).toBe(401);
   });
 });
+
+describe("GET /github-token/status", () => {
+  it("returns not configured when token is missing", async () => {
+    const req = jsonRequest(
+      "GET",
+      "/github-token/status?userId=u1",
+      undefined,
+      apiHeaders()
+    );
+    const res = await SELF.fetch(req);
+    expect(res.status).toBe(200);
+    const body = await res.json<{ configured: boolean }>();
+    expect(body.configured).toBe(false);
+  });
+
+  it("returns polling status fields for configured token", async () => {
+    await env.DB.prepare(
+      `INSERT INTO user_github_tokens (
+        user_id,
+        encrypted_token,
+        github_login,
+        last_poll_at,
+        last_poll_status,
+        last_poll_error,
+        last_poll_success_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    )
+      .bind(
+        "u1",
+        "cipher",
+        "octocat",
+        "2026-03-09T10:00:00.000Z",
+        "github_error",
+        "GitHub API error: 500",
+        "2026-03-09T09:50:00.000Z"
+      )
+      .run();
+
+    const req = jsonRequest(
+      "GET",
+      "/github-token/status?userId=u1",
+      undefined,
+      apiHeaders()
+    );
+    const res = await SELF.fetch(req);
+    expect(res.status).toBe(200);
+    const body = await res.json<{
+      configured: boolean;
+      githubLogin: string;
+      lastPollStatus: string;
+      lastPollError: string;
+      lastPollAt: string;
+      lastPollSuccessAt: string;
+    }>();
+    expect(body.configured).toBe(true);
+    expect(body.githubLogin).toBe("octocat");
+    expect(body.lastPollStatus).toBe("github_error");
+    expect(body.lastPollError).toBe("GitHub API error: 500");
+    expect(body.lastPollAt).toBe("2026-03-09T10:00:00.000Z");
+    expect(body.lastPollSuccessAt).toBe("2026-03-09T09:50:00.000Z");
+  });
+});

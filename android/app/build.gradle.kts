@@ -21,6 +21,12 @@ val githubClientId = (
 ).orEmpty()
     .replace("\"", "\\\"")
 
+val githubClientSecret = (
+    localProperties.getProperty("github.clientSecret")
+        ?: providers.gradleProperty("github.clientSecret").orNull
+).orEmpty()
+    .replace("\"", "\\\"")
+
 val configuredServerUrl = (
     localProperties.getProperty("ghpr.serverUrl")
         ?: providers.gradleProperty("ghpr.serverUrl").orNull
@@ -53,6 +59,7 @@ android {
 
         buildConfigField("String", "GHPR_SERVER_URL", "\"$ghprServerUrl\"")
         buildConfigField("String", "GITHUB_CLIENT_ID", "\"$githubClientId\"")
+        buildConfigField("String", "GITHUB_CLIENT_SECRET", "\"$githubClientSecret\"")
     }
 
     buildFeatures {

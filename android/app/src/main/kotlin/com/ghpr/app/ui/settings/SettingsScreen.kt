@@ -1,7 +1,11 @@
 package com.ghpr.app.ui.settings
 
+import android.Manifest
 import android.content.Intent
-import android.net.Uri
+import androidx.core.net.toUri
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -34,6 +38,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -48,14 +53,31 @@ import androidx.compose.ui.unit.dp
 import com.ghpr.app.auth.GitHubAuthState
 import com.ghpr.app.data.PollingMode
 import com.ghpr.app.ui.components.AvatarCircle
+import com.ghpr.app.ui.theme.MonoStyle
 import com.ghpr.app.ui.theme.NeoButton
 import com.ghpr.app.ui.theme.NeoCard
 import com.ghpr.app.ui.theme.neoTopBarBorder
+import com.ghpr.app.push.hasNotificationPermission
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(viewModel: SettingsViewModel) {
     val state by viewModel.state.collectAsState()
+    val context = LocalContext.current
+    var permissionGranted by remember { mutableStateOf(hasNotificationPermission(context)) }
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        permissionGranted = granted
+        viewModel.setNotificationsEnabled(granted)
+    }
+
+    LaunchedEffect(state.notificationsEnabled) {
+        permissionGranted = hasNotificationPermission(context)
+        if (!permissionGranted && state.notificationsEnabled) {
+            viewModel.setNotificationsEnabled(false)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -102,8 +124,29 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                 ) {
                     Text("Push notifications", style = MaterialTheme.typography.bodyLarge)
                     Switch(
-                        checked = state.notificationsEnabled,
-                        onCheckedChange = viewModel::setNotificationsEnabled,
+                        checked = state.notificationsEnabled && permissionGranted,
+                        onCheckedChange = { enabled ->
+                            if (!enabled) {
+                                viewModel.setNotificationsEnabled(false)
+                                return@Switch
+                            }
+                            if (hasNotificationPermission(context)) {
+                                permissionGranted = true
+                                viewModel.setNotificationsEnabled(true)
+                            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            } else {
+                                viewModel.setNotificationsEnabled(true)
+                            }
+                        },
+                    )
+                }
+                if (!permissionGranted) {
+                    Text(
+                        text = "Notification permission is required for system alerts.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 8.dp),
                     )
                 }
             }
@@ -121,6 +164,26 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                     onConfirm = viewModel::confirmServerMode,
                     onDismiss = viewModel::dismissServerModeDialog,
                 )
+            }
+
+            SectionHeader("Server Polling")
+            SettingsCard {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    InfoRow("Status", state.serverPollingStatus)
+                    InfoRow("Last poll", state.serverLastPollAt ?: "N/A")
+                    InfoRow("Last success", state.serverLastPollSuccessAt ?: "N/A")
+                    val pollingError = state.serverPollingError
+                    if (!pollingError.isNullOrBlank()) {
+                        Text(
+                            text = pollingError,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                    NeoButton(onClick = viewModel::refreshServerPollingStatus) {
+                        Text("Refresh status")
+                    }
+                }
             }
 
             // About Section
@@ -183,7 +246,7 @@ private fun GitHubAccountSection(
                 ) {
                     Text(
                         text = authState.userCode,
-                        style = MaterialTheme.typography.titleLarge,
+                        style = MonoStyle.code,
                     )
                     IconButton(onClick = {
                         clipboardManager.setText(AnnotatedString(authState.userCode))
@@ -194,7 +257,7 @@ private fun GitHubAccountSection(
                 NeoButton(
                     onClick = {
                         context.startActivity(
-                            Intent(Intent.ACTION_VIEW, Uri.parse(authState.verificationUri)),
+                            Intent(Intent.ACTION_VIEW, authState.verificationUri.toUri()),
                         )
                     },
                     containerColor = MaterialTheme.colorScheme.surfaceVariant,
@@ -236,7 +299,7 @@ private fun GitHubAccountSection(
                     )
                     Text(
                         text = authState.login,
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MonoStyle.codeMedium,
                     )
                 }
                 IconButton(onClick = onSignOut) {
@@ -373,7 +436,7 @@ private fun InfoRow(label: String, value: String) {
         )
         Text(
             text = value,
-            style = MaterialTheme.typography.bodyMedium,
+            style = MonoStyle.codeSmall,
         )
     }
 }

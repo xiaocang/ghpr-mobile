@@ -29,7 +29,6 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
@@ -47,7 +46,6 @@ import com.ghpr.app.ui.settings.SettingsViewModel
 import com.ghpr.app.ui.subscriptions.SubscriptionsScreen
 import com.ghpr.app.ui.subscriptions.SubscriptionsViewModel
 import com.ghpr.app.ui.theme.LocalNeoBrutalColors
-import com.ghpr.app.ui.theme.PressStart2P
 
 private sealed class Screen(val route: String, val label: String, val icon: ImageVector) {
     data object Subscriptions : Screen("subscriptions", "Subs", Icons.AutoMirrored.Filled.List)
@@ -56,7 +54,7 @@ private sealed class Screen(val route: String, val label: String, val icon: Imag
     data object Settings : Screen("settings", "Settings", Icons.Default.Settings)
 }
 
-private val screens = listOf(Screen.Subscriptions, Screen.History, Screen.OpenPrs, Screen.Settings)
+private val screens = listOf(Screen.OpenPrs, Screen.History, Screen.Subscriptions, Screen.Settings)
 
 @Composable
 fun AppNavGraph(container: AppContainer) {
@@ -89,7 +87,7 @@ fun AppNavGraph(container: AppContainer) {
     ) { innerPadding ->
         NavHost(
             navController = navController,
-            startDestination = Screen.Subscriptions.route,
+            startDestination = Screen.OpenPrs.route,
             modifier = Modifier.padding(innerPadding),
         ) {
             composable(Screen.Subscriptions.route) {
@@ -194,10 +192,6 @@ private fun RowScope.NeoBottomBarItem(
         Box(
             modifier = Modifier
                 .background(bgColor, shape)
-                .then(
-                    if (selected) Modifier.background(bgColor, shape)
-                    else Modifier
-                )
                 .padding(horizontal = 16.dp, vertical = 4.dp),
             contentAlignment = Alignment.Center,
         ) {
@@ -209,8 +203,7 @@ private fun RowScope.NeoBottomBarItem(
         }
         Text(
             text = label,
-            fontFamily = PressStart2P,
-            fontSize = 7.sp,
+            style = MaterialTheme.typography.labelSmall,
             color = contentColor,
             modifier = Modifier.padding(top = 2.dp),
         )

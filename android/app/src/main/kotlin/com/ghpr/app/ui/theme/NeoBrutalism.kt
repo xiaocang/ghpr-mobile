@@ -9,6 +9,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -16,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -25,6 +27,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.Arrangement
 
 private val NeoCornerShape = RoundedCornerShape(6.dp)
 private val NeoBorderWidth = 2.5.dp
@@ -64,7 +67,7 @@ fun NeoButton(
     enabled: Boolean = true,
     containerColor: Color = MaterialTheme.colorScheme.primary,
     contentColor: Color = MaterialTheme.colorScheme.onPrimary,
-    content: @Composable () -> Unit,
+    content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit,
 ) {
     val neo = LocalNeoBrutalColors.current
     val interactionSource = remember { MutableInteractionSource() }
@@ -110,7 +113,11 @@ fun NeoButton(
             androidx.compose.runtime.CompositionLocalProvider(
                 androidx.compose.material3.LocalContentColor provides contentColor,
             ) {
-                content()
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    content = content,
+                )
             }
         }
     }
@@ -167,6 +174,7 @@ fun NeoTextField(
     modifier: Modifier = Modifier,
     label: String = "",
     singleLine: Boolean = true,
+    textStyle: TextStyle? = null,
 ) {
     val neo = LocalNeoBrutalColors.current
     Column(modifier = modifier) {
@@ -188,7 +196,7 @@ fun NeoTextField(
                 value = value,
                 onValueChange = onValueChange,
                 singleLine = singleLine,
-                textStyle = MaterialTheme.typography.bodyMedium.copy(
+                textStyle = (textStyle ?: MaterialTheme.typography.bodyMedium).copy(
                     color = MaterialTheme.colorScheme.onSurface,
                 ),
                 modifier = Modifier.fillMaxWidth(),

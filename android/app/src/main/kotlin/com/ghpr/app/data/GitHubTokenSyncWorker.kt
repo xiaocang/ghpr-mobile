@@ -27,7 +27,7 @@ class GitHubTokenSyncWorker(
 
     override suspend fun doWork(): Result {
         val app = applicationContext as GhprApplication
-        val ghToken = app.container.gitHubOAuthManager.getToken()
+        val ghToken = app.container.gitHubOAuthManager.getTokenForServerSync()
         val ghLogin = app.container.gitHubOAuthManager.getLogin()
 
         if (ghToken.isNullOrBlank() || ghLogin.isNullOrBlank()) {

@@ -37,6 +37,9 @@ CREATE TABLE IF NOT EXISTS user_github_tokens (
   encrypted_token TEXT NOT NULL,
   github_login TEXT NOT NULL,
   last_poll_at TEXT,
+  last_poll_status TEXT,
+  last_poll_error TEXT,
+  last_poll_success_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

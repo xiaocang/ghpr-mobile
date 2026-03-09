@@ -6,4 +6,6 @@ data class PushUpdatePayload(
     val action: String,
     val deliveryId: String,
     val sentAtMillis: Long,
+    val prTitle: String? = null,
+    val prUrl: String? = null,
 )

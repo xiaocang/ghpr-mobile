@@ -17,5 +17,7 @@ data class OpenPullRequest(
     val repoOwner: String,
     val repoName: String,
     val ciState: String?,
+    val approvalCount: Int = 0,
+    val unresolvedCount: Int = 0,
     val category: PrCategory = PrCategory.AUTHORED,
 )

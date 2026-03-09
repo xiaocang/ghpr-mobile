@@ -10,6 +10,8 @@ FCM `data` payload fields:
 - `repo`: `owner/repo`
 - `prNumber`: pull request number
 - `action`: GitHub webhook action
+- `prTitle` (optional): pull request title
+- `prUrl` (optional): pull request URL
 - `deliveryId`: GitHub delivery id for idempotency tracing
 - `sentAt`: unix millis
 
@@ -20,6 +22,7 @@ FCM `data` payload fields:
 - Require `prNumber` as positive integer string.
 - Require `sentAt` as positive unix millis string.
 - Deduplicate by `deliveryId` on client side to avoid repeat refresh for redelivered pushes.
+- `action` is normalized into app events: `opened`, `updated`, `review_requested`, `commented`, `mentioned`, `assigned`, `merged`, `closed`, `state_changed`.
 
 ## Client behavior
 

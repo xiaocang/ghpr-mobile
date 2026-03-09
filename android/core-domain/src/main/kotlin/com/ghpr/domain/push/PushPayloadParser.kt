@@ -7,6 +7,8 @@ object PushPayloadParser {
     private const val KEY_ACTION = "action"
     private const val KEY_DELIVERY_ID = "deliveryId"
     private const val KEY_SENT_AT = "sentAt"
+    private const val KEY_PR_TITLE = "prTitle"
+    private const val KEY_PR_URL = "prUrl"
     private const val EXPECTED_TYPE = "pr_update"
 
     fun parse(data: Map<String, String>): PushUpdatePayload? {
@@ -33,6 +35,8 @@ object PushPayloadParser {
             action = action,
             deliveryId = deliveryId,
             sentAtMillis = sentAtMillis,
+            prTitle = data[KEY_PR_TITLE]?.trim()?.takeIf { it.isNotEmpty() },
+            prUrl = data[KEY_PR_URL]?.trim()?.takeIf { it.isNotEmpty() },
         )
     }
 }

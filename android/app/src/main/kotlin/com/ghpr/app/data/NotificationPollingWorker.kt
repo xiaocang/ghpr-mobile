@@ -33,6 +33,8 @@ class NotificationPollingWorker(
     override suspend fun doWork(): Result {
         val app = applicationContext as GhprApplication
         val ghToken = app.container.gitHubOAuthManager.getToken() ?: return Result.success()
+        val notificationsEnabled = app.container.notificationSettingsStore.readNotificationsEnabled()
+        if (!notificationsEnabled) return Result.success()
 
         val lastCheck = applicationContext.pollingDataStore.data.first()[lastCheckKey]
         val now = java.time.Instant.now().toString()
@@ -54,9 +56,12 @@ class NotificationPollingWorker(
 
                 NotificationChannelManager.showPrNotification(
                     context = applicationContext,
-                    title = "${notif.repoFullName} #${notif.prNumber}",
-                    body = notif.title,
-                    prUrl = "https://github.com/${notif.repoFullName}/pull/${notif.prNumber}",
+                    deliveryId = notif.id,
+                    repo = notif.repoFullName,
+                    prNumber = notif.prNumber,
+                    action = notif.action,
+                    prTitle = notif.title,
+                    prUrl = notif.prUrl,
                 )
             }
 
@@ -74,7 +79,9 @@ class NotificationPollingWorker(
         val id: String,
         val repoFullName: String,
         val prNumber: Int,
+        val action: String,
         val title: String,
+        val prUrl: String,
     )
 
     private fun fetchNotifications(token: String, since: String?): List<PrNotification> {
@@ -113,7 +120,9 @@ class NotificationPollingWorker(
                     id = item.getString("id"),
                     repoFullName = repo,
                     prNumber = prNumber,
+                    action = NotificationEventMapper.normalizeReason(item.optString("reason")),
                     title = subject.getString("title"),
+                    prUrl = "https://github.com/${repo}/pull/${prNumber}",
                 )
             )
         }

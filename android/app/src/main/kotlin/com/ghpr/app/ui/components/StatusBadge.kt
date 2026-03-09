@@ -11,7 +11,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.ghpr.app.data.NotificationEventMapper
 import com.ghpr.app.ui.theme.LocalGhprStatusColors
+import com.ghpr.app.ui.theme.MonoStyle
 
 private val BadgeShape = RoundedCornerShape(4.dp)
 
@@ -23,7 +25,7 @@ fun StatusBadge(
 ) {
     Text(
         text = text,
-        style = MaterialTheme.typography.labelSmall,
+        style = MonoStyle.codeBold,
         color = color,
         modifier = modifier
             .clip(BadgeShape)
@@ -36,11 +38,11 @@ fun StatusBadge(
 @Composable
 fun actionStatusColor(action: String): Color {
     val statusColors = LocalGhprStatusColors.current
-    return when (action.lowercase()) {
-        "opened", "reopened" -> statusColors.opened
+    return when (NotificationEventMapper.normalizeAction(action)) {
+        "opened" -> statusColors.opened
         "closed" -> statusColors.closed
         "merged" -> statusColors.merged
-        "synchronize", "edited", "review_requested" -> statusColors.pending
+        "review_requested", "commented", "mentioned", "assigned", "state_changed", "updated" -> statusColors.pending
         else -> statusColors.link
     }
 }

@@ -38,6 +38,7 @@ import com.ghpr.app.ui.components.EmptyStateView
 import com.ghpr.app.ui.components.ErrorStateView
 import com.ghpr.app.ui.theme.NeoButton
 import com.ghpr.app.ui.theme.NeoCard
+import com.ghpr.app.ui.theme.MonoStyle
 import com.ghpr.app.ui.theme.NeoFab
 import com.ghpr.app.ui.theme.NeoTextField
 import com.ghpr.app.ui.theme.neoTopBarBorder
@@ -134,13 +135,13 @@ private fun SubscriptionItem(repo: String, onRemove: () -> Unit) {
                 if (owner.isNotEmpty()) {
                     Text(
                         text = owner,
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MonoStyle.codeSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 Text(
                     text = repoName,
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MonoStyle.codeMedium,
                 )
             }
             IconButton(onClick = onRemove) {
@@ -175,6 +176,7 @@ private fun AddSubscriptionDialog(onDismiss: () -> Unit, onConfirm: (String) -> 
                     value = text,
                     onValueChange = { text = it },
                     modifier = Modifier.fillMaxWidth(),
+                    textStyle = MonoStyle.codeMedium,
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 Row(

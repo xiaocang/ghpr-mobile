@@ -93,6 +93,23 @@ describe("GET /mobile/sync", () => {
     expect(body.changedPullRequests[0].action).toBe("closed");
   });
 
+  it("normalizes legacy actions in sync response", async () => {
+    await seedSubscription("u1", "o/r");
+    await seedPrChange("d1", "o/r", 1, "synchronize", 1000);
+
+    const req = jsonRequest(
+      "GET",
+      "/mobile/sync?userId=u1&since=0",
+      undefined,
+      apiHeaders()
+    );
+    const res = await SELF.fetch(req);
+    const body = await res.json<{
+      changedPullRequests: Array<{ action: string }>;
+    }>();
+    expect(body.changedPullRequests[0].action).toBe("updated");
+  });
+
   it("paginates with hasMore", async () => {
     await seedSubscription("u1", "o/r");
     for (let i = 1; i <= 3; i++) {

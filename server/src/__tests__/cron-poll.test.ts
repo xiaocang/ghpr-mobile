@@ -57,4 +57,15 @@ describe("resolveDeviceTokensForUser", () => {
     const tokens = await resolveDeviceTokensForUser(env.DB, "nobody");
     expect(tokens).toHaveLength(0);
   });
+
+  it("normalizes poll reasons into app actions", async () => {
+    const { reasonToAction } = await import("../github-poller");
+    expect(reasonToAction("review_requested")).toBe("review_requested");
+    expect(reasonToAction("author")).toBe("updated");
+    expect(reasonToAction("comment")).toBe("commented");
+    expect(reasonToAction("mention")).toBe("mentioned");
+    expect(reasonToAction("assign")).toBe("assigned");
+    expect(reasonToAction("state_change")).toBe("state_changed");
+    expect(reasonToAction("something_else")).toBe("updated");
+  });
 });

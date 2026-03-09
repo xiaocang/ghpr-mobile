@@ -8,67 +8,97 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import com.ghpr.app.R
 
-val Silkscreen = FontFamily(
-    Font(R.font.silkscreen_regular),
-    Font(R.font.silkscreen_bold, FontWeight.Bold),
+val ShureTechMonoNerd = FontFamily(
+    Font(R.font.shure_tech_mono_nerd_regular),
+    Font(R.font.shure_tech_mono_nerd_regular, FontWeight.Bold),
 )
 
-// Keep alias for bottom bar usage
-val PressStart2P = Silkscreen
-
-val JetBrainsMono = FontFamily(
-    Font(R.font.jetbrains_mono_regular),
-    Font(R.font.jetbrains_mono_bold, FontWeight.Bold),
-)
+// Default system font (Roboto) for UI chrome / natural language text
+val GhprDefaultFamily = FontFamily.Default
 
 val GhprTypography = Typography(
     titleLarge = TextStyle(
-        fontFamily = Silkscreen,
-        fontWeight = FontWeight.Normal,
+        fontFamily = GhprDefaultFamily,
+        fontWeight = FontWeight.Bold,
         fontSize = 16.sp,
         lineHeight = 26.sp,
         letterSpacing = 0.sp,
     ),
     titleMedium = TextStyle(
-        fontFamily = Silkscreen,
-        fontWeight = FontWeight.Normal,
+        fontFamily = GhprDefaultFamily,
+        fontWeight = FontWeight.SemiBold,
         fontSize = 12.sp,
         lineHeight = 22.sp,
         letterSpacing = 0.sp,
     ),
     titleSmall = TextStyle(
-        fontFamily = Silkscreen,
-        fontWeight = FontWeight.Normal,
+        fontFamily = GhprDefaultFamily,
+        fontWeight = FontWeight.SemiBold,
         fontSize = 10.sp,
         lineHeight = 18.sp,
         letterSpacing = 0.sp,
     ),
     bodyLarge = TextStyle(
-        fontFamily = JetBrainsMono,
+        fontFamily = GhprDefaultFamily,
         fontWeight = FontWeight.Normal,
         fontSize = 16.sp,
         lineHeight = 24.sp,
         letterSpacing = 0.sp,
     ),
     bodyMedium = TextStyle(
-        fontFamily = JetBrainsMono,
+        fontFamily = GhprDefaultFamily,
         fontWeight = FontWeight.Normal,
         fontSize = 14.sp,
         lineHeight = 20.sp,
         letterSpacing = 0.sp,
     ),
     bodySmall = TextStyle(
-        fontFamily = JetBrainsMono,
+        fontFamily = GhprDefaultFamily,
         fontWeight = FontWeight.Normal,
         fontSize = 12.sp,
         lineHeight = 16.sp,
         letterSpacing = 0.sp,
     ),
     labelSmall = TextStyle(
-        fontFamily = JetBrainsMono,
+        fontFamily = GhprDefaultFamily,
         fontWeight = FontWeight.Bold,
         fontSize = 11.sp,
         lineHeight = 16.sp,
         letterSpacing = 0.sp,
     ),
+    labelMedium = TextStyle(
+        fontFamily = GhprDefaultFamily,
+        fontWeight = FontWeight.Medium,
+        fontSize = 12.sp,
+        lineHeight = 16.sp,
+        letterSpacing = 0.sp,
+    ),
 )
+
+/** Terminal/monospace text styles for code and technical content. */
+object MonoStyle {
+    val code = TextStyle(
+        fontFamily = ShureTechMonoNerd,
+        fontWeight = FontWeight.Normal,
+        fontSize = 16.sp,
+        lineHeight = 26.sp,
+    )
+    val codeBold = TextStyle(
+        fontFamily = ShureTechMonoNerd,
+        fontWeight = FontWeight.Bold,
+        fontSize = 11.sp,
+        lineHeight = 16.sp,
+    )
+    val codeMedium = TextStyle(
+        fontFamily = ShureTechMonoNerd,
+        fontWeight = FontWeight.Normal,
+        fontSize = 12.sp,
+        lineHeight = 22.sp,
+    )
+    val codeSmall = TextStyle(
+        fontFamily = ShureTechMonoNerd,
+        fontWeight = FontWeight.Normal,
+        fontSize = 12.sp,
+        lineHeight = 16.sp,
+    )
+}

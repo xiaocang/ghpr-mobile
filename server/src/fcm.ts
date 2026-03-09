@@ -11,6 +11,8 @@ export type PushDataPayload = {
   action: string;
   deliveryId: string;
   sentAt: string;
+  prTitle?: string;
+  prUrl?: string;
 };
 
 const encoder = new TextEncoder();
@@ -126,6 +128,8 @@ export async function sendFcmPush(
           action: payload.action,
           deliveryId: payload.deliveryId,
           sentAt: payload.sentAt,
+          ...(payload.prTitle ? { prTitle: payload.prTitle } : {}),
+          ...(payload.prUrl ? { prUrl: payload.prUrl } : {}),
         },
       },
     }),

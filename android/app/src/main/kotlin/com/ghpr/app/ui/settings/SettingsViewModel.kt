@@ -10,6 +10,7 @@ import com.ghpr.app.data.DataStoreNotificationSettingsStore
 import com.ghpr.app.data.DataStorePollingModeStore
 import com.ghpr.app.data.DataStoreRefreshSettingsStore
 import com.ghpr.app.data.GhprApiClient
+import com.ghpr.app.data.GitHubTokenStatusResponse
 import com.ghpr.app.data.GitHubTokenSyncWorker
 import com.ghpr.app.data.PollingMode
 import com.ghpr.app.data.PollingScheduler
@@ -18,6 +19,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -31,6 +33,10 @@ data class SettingsUiState(
     val appVersion: String = "",
     val pollingMode: PollingMode = PollingMode.CLIENT,
     val showServerModeConfirmDialog: Boolean = false,
+    val serverPollingStatus: String = "Unknown",
+    val serverPollingError: String? = null,
+    val serverLastPollAt: String? = null,
+    val serverLastPollSuccessAt: String? = null,
 )
 
 class SettingsViewModel(
@@ -51,6 +57,17 @@ class SettingsViewModel(
     )
 
     private val _showServerConfirmDialog = MutableStateFlow(false)
+    private val serverTokenStatus = MutableStateFlow<GitHubTokenStatusResponse?>(null)
+
+    init {
+        viewModelScope.launch {
+            gitHubOAuthManager.authState
+                .filter { it is GitHubAuthState.SignedIn }
+                .collect {
+                    refreshServerPollingStatus()
+                }
+        }
+    }
 
     val state: StateFlow<SettingsUiState> = combine(
         gitHubOAuthManager.authState,
@@ -58,12 +75,14 @@ class SettingsViewModel(
         notificationSettingsStore.notificationsEnabled,
         pollingModeStore.pollingMode,
         _showServerConfirmDialog,
+        serverTokenStatus,
     ) { values ->
         val authState = values[0] as GitHubAuthState
         val interval = values[1] as Int
         val notifEnabled = values[2] as Boolean
         val pollMode = values[3] as PollingMode
         val showDialog = values[4] as Boolean
+        val tokenStatus = values[5] as GitHubTokenStatusResponse?
         SettingsUiState(
             gitHubAuthState = authState,
             refreshIntervalMinutes = interval,
@@ -78,6 +97,15 @@ class SettingsViewModel(
             appVersion = appVersion,
             pollingMode = pollMode,
             showServerModeConfirmDialog = showDialog,
+            serverPollingStatus = when {
+                tokenStatus == null -> "Unknown"
+                !tokenStatus.configured -> "Not configured"
+                tokenStatus.lastPollStatus.isNullOrBlank() -> "No polls yet"
+                else -> tokenStatus.lastPollStatus
+            },
+            serverPollingError = tokenStatus?.lastPollError,
+            serverLastPollAt = tokenStatus?.lastPollAt,
+            serverLastPollSuccessAt = tokenStatus?.lastPollSuccessAt,
         )
     }.stateIn(
         viewModelScope,
@@ -106,6 +134,7 @@ class SettingsViewModel(
             pollingScheduler.cancelClientPolling()
             pollingScheduler.cancelGrantRefresh()
             pollingModeStore.setPollingMode(PollingMode.OFF)
+            serverTokenStatus.value = null
         }
         gitHubOAuthManager.signOut()
     }
@@ -151,6 +180,7 @@ class SettingsViewModel(
                     GitHubTokenSyncWorker.enqueue(applicationContext)
                     pollingScheduler.cancelClientPolling()
                     pollingScheduler.scheduleGrantRefresh()
+                    refreshServerPollingStatus()
                 }
                 PollingMode.OFF -> {
                     try { apiClient.api.deleteGitHubToken() } catch (_: Exception) {}
@@ -158,6 +188,17 @@ class SettingsViewModel(
                     pollingScheduler.cancelGrantRefresh()
                 }
             }
+        }
+    }
+
+    fun refreshServerPollingStatus() {
+        viewModelScope.launch {
+            runCatching { apiClient.api.githubTokenStatus() }
+                .onSuccess { response ->
+                    if (response.isSuccessful) {
+                        serverTokenStatus.value = response.body()
+                    }
+                }
         }
     }
 }

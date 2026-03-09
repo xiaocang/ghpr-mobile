@@ -1,7 +1,7 @@
 package com.ghpr.app.ui.openprs
 
 import android.content.Intent
-import android.net.Uri
+import androidx.core.net.toUri
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -37,6 +37,7 @@ import com.ghpr.app.ui.components.ErrorStateView
 import com.ghpr.app.ui.components.StatusBadge
 import com.ghpr.app.ui.theme.LocalGhprStatusColors
 import com.ghpr.app.ui.theme.NeoButton
+import com.ghpr.app.ui.theme.MonoStyle
 import com.ghpr.app.ui.theme.NeoCard
 import com.ghpr.app.ui.theme.neoTopBarBorder
 
@@ -104,11 +105,11 @@ fun OpenPrsScreen(viewModel: OpenPrsViewModel) {
                         }
                         if (state.authoredPrs.isNotEmpty()) {
                             item { SectionHeader("My PRs", state.authoredPrs.size) }
-                            items(state.authoredPrs) { pr -> OpenPrCard(pr) }
+                            items(state.authoredPrs) { pr -> OpenPrCard(pr, showReviewMetrics = true) }
                         }
                         if (state.reviewRequestedPrs.isNotEmpty()) {
                             item { SectionHeader("Review Requested", state.reviewRequestedPrs.size) }
-                            items(state.reviewRequestedPrs) { pr -> OpenPrCard(pr) }
+                            items(state.reviewRequestedPrs) { pr -> OpenPrCard(pr, showReviewMetrics = false) }
                         }
                     }
                 }
@@ -179,7 +180,7 @@ private fun SsoBanner(ssoRequired: List<SsoAuthorizationRequired>) {
                     NeoButton(
                         onClick = {
                             context.startActivity(
-                                Intent(Intent.ACTION_VIEW, Uri.parse(sso.authUrl)),
+                                Intent(Intent.ACTION_VIEW, sso.authUrl.toUri()),
                             )
                         },
                         containerColor = MaterialTheme.colorScheme.errorContainer,
@@ -197,7 +198,10 @@ private fun SsoBanner(ssoRequired: List<SsoAuthorizationRequired>) {
 }
 
 @Composable
-private fun OpenPrCard(pr: OpenPullRequest) {
+private fun OpenPrCard(
+    pr: OpenPullRequest,
+    showReviewMetrics: Boolean,
+) {
     val context = LocalContext.current
     val statusColors = LocalGhprStatusColors.current
 
@@ -206,7 +210,7 @@ private fun OpenPrCard(pr: OpenPullRequest) {
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp)
             .clickable {
-                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(pr.url)))
+                context.startActivity(Intent(Intent.ACTION_VIEW, pr.url.toUri()))
             },
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
@@ -224,7 +228,7 @@ private fun OpenPrCard(pr: OpenPullRequest) {
             ) {
                 Text(
                     text = "${pr.repoOwner}/${pr.repoName}#${pr.number}",
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MonoStyle.codeSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f),
                 )
@@ -247,10 +251,25 @@ private fun OpenPrCard(pr: OpenPullRequest) {
             }
             Text(
                 text = pr.authorLogin,
-                style = MaterialTheme.typography.bodySmall,
+                style = MonoStyle.codeSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 2.dp),
             )
+            if (showReviewMetrics) {
+                Row(
+                    modifier = Modifier.padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    StatusBadge(
+                        text = "approved ${pr.approvalCount}",
+                        color = statusColors.success,
+                    )
+                    StatusBadge(
+                        text = "unresolved ${pr.unresolvedCount}",
+                        color = statusColors.pending,
+                    )
+                }
+            }
         }
     }
 }

@@ -63,4 +63,23 @@ class PushPayloadParserTest {
         )
         assertNull(payload)
     }
+
+    @Test
+    fun `parse should keep optional title and url when present`() {
+        val payload = PushPayloadParser.parse(
+            mapOf(
+                "type" to "pr_update",
+                "repo" to "owner/repo",
+                "prNumber" to "42",
+                "action" to "opened",
+                "deliveryId" to "abc-delivery",
+                "sentAt" to "1730000100000",
+                "prTitle" to "Improve parser",
+                "prUrl" to "https://github.com/owner/repo/pull/42",
+            ),
+        )
+
+        assertEquals("Improve parser", payload?.prTitle)
+        assertEquals("https://github.com/owner/repo/pull/42", payload?.prUrl)
+    }
 }

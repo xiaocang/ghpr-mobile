@@ -25,10 +25,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.ghpr.app.data.ChangedPr
+import com.ghpr.app.data.NotificationEventMapper
 import com.ghpr.app.ui.components.EmptyStateView
 import com.ghpr.app.ui.components.ErrorStateView
 import com.ghpr.app.ui.components.StatusBadge
 import com.ghpr.app.ui.components.actionStatusColor
+import com.ghpr.app.ui.theme.MonoStyle
 import com.ghpr.app.ui.theme.NeoCard
 import com.ghpr.app.ui.theme.neoTopBarBorder
 import java.text.SimpleDateFormat
@@ -105,17 +107,17 @@ private fun PrChangeCard(item: ChangedPr) {
             ) {
                 Text(
                     text = "${item.repo}#${item.number}",
-                    style = MaterialTheme.typography.titleSmall,
+                    style = MonoStyle.codeSmall,
                     modifier = Modifier.weight(1f),
                 )
                 StatusBadge(
-                    text = item.action,
+                    text = NotificationEventMapper.labelFor(item.action),
                     color = statusColor,
                 )
             }
             Text(
                 text = formattedDate,
-                style = MaterialTheme.typography.bodySmall,
+                style = MonoStyle.codeSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp),
             )

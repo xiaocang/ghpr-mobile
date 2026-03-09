@@ -1,5 +1,6 @@
 import { pollAllUsers } from "./github-poller";
 import { encryptToken } from "./crypto";
+import { normalizeAction } from "./normalize";
 import {
   sendFcmPush,
   resetAccessTokenCache,
@@ -24,7 +25,7 @@ export interface Env {
 type GitHubEvent = {
   action?: string;
   repository?: { full_name?: string };
-  pull_request?: { number?: number; html_url?: string; title?: string };
+  pull_request?: { number?: number; html_url?: string; title?: string; merged?: boolean };
 };
 
 type DeviceRegisterBody = {
@@ -64,6 +65,14 @@ type PRChangeRow = {
   changed_at_ms: number;
 };
 
+type GitHubTokenStatusRow = {
+  github_login: string;
+  last_poll_status: string | null;
+  last_poll_error: string | null;
+  last_poll_at: string | null;
+  last_poll_success_at: string | null;
+};
+
 const encoder = new TextEncoder();
 
 export async function sha256HmacHex(secret: string, body: string): Promise<string> {
@@ -98,6 +107,11 @@ async function parseJsonBody<T>(request: Request): Promise<T | null> {
 
 function normalizeRepoFullName(input: string): string {
   return input.trim().toLowerCase();
+}
+
+function normalizeWebhookAction(action: string, merged: boolean): string {
+  if (merged && action.trim().toLowerCase() === "closed") return "merged";
+  return normalizeAction(action);
 }
 
 type AuthResult = { userId: string };
@@ -305,9 +319,10 @@ async function savePrChange(db: D1Database, payload: PushDataPayload): Promise<v
 export function buildPushPayload(event: GitHubEvent, deliveryId: string): PushDataPayload | null {
   const repo = event.repository?.full_name?.trim() ?? "";
   const prNumber = event.pull_request?.number;
-  const action = event.action?.trim() ?? "";
+  const actionRaw = event.action?.trim() ?? "";
+  const action = normalizeWebhookAction(actionRaw, Boolean(event.pull_request?.merged));
 
-  if (!repo || !action || !prNumber || prNumber <= 0) {
+  if (!repo || !actionRaw || !prNumber || prNumber <= 0) {
     return null;
   }
 
@@ -317,7 +332,9 @@ export function buildPushPayload(event: GitHubEvent, deliveryId: string): PushDa
     prNumber: String(prNumber),
     action,
     deliveryId,
-    sentAt: String(Date.now())
+    sentAt: String(Date.now()),
+    prTitle: event.pull_request?.title?.trim() || undefined,
+    prUrl: event.pull_request?.html_url?.trim() || undefined,
   };
 }
 
@@ -338,12 +355,16 @@ async function resolveDeviceTokensForRepo(db: D1Database, repoFullName: string):
 async function fanOutPush(env: Env, payload: PushDataPayload): Promise<number> {
   const tokens = await resolveDeviceTokensForRepo(env.DB, payload.repo);
   for (const token of tokens) {
-    const result = await sendFcmPush(env, payload, token);
-    if (!result.success && result.deleteToken) {
-      await env.DB
-        .prepare("DELETE FROM device_tokens WHERE token = ?")
-        .bind(token)
-        .run();
+    try {
+      const result = await sendFcmPush(env, payload, token);
+      if (!result.success && result.deleteToken) {
+        await env.DB
+          .prepare("DELETE FROM device_tokens WHERE token = ?")
+          .bind(token)
+          .run();
+      }
+    } catch (err) {
+      console.error(`FCM send failed for token ${token.slice(0, 6)}...`, err);
     }
   }
   return tokens.length;
@@ -501,11 +522,23 @@ async function handleStoreGitHubToken(request: Request, env: Env, userId: string
 
   await env.DB
     .prepare(
-      `INSERT INTO user_github_tokens (user_id, encrypted_token, github_login, created_at, updated_at)
-       VALUES (?, ?, ?, datetime('now'), datetime('now'))
+      `INSERT INTO user_github_tokens (
+         user_id,
+         encrypted_token,
+         github_login,
+         last_poll_status,
+         last_poll_error,
+         last_poll_success_at,
+         created_at,
+         updated_at
+       )
+       VALUES (?, ?, ?, NULL, NULL, NULL, datetime('now'), datetime('now'))
        ON CONFLICT(user_id) DO UPDATE SET
          encrypted_token = excluded.encrypted_token,
          github_login = excluded.github_login,
+         last_poll_status = NULL,
+         last_poll_error = NULL,
+         last_poll_success_at = NULL,
          updated_at = datetime('now')`
     )
     .bind(userId, encrypted, githubLogin)
@@ -521,6 +554,32 @@ async function handleDeleteGitHubToken(env: Env, userId: string): Promise<Respon
     .run();
 
   return jsonResponse({ ok: true });
+}
+
+async function handleGitHubTokenStatus(env: Env, userId: string): Promise<Response> {
+  const row = await env.DB
+    .prepare(
+      `SELECT github_login, last_poll_status, last_poll_error, last_poll_at, last_poll_success_at
+       FROM user_github_tokens
+       WHERE user_id = ?
+       LIMIT 1`
+    )
+    .bind(userId)
+    .first<GitHubTokenStatusRow>();
+
+  if (!row) {
+    return jsonResponse({ ok: true, configured: false });
+  }
+
+  return jsonResponse({
+    ok: true,
+    configured: true,
+    githubLogin: row.github_login,
+    lastPollStatus: row.last_poll_status,
+    lastPollError: row.last_poll_error,
+    lastPollAt: row.last_poll_at,
+    lastPollSuccessAt: row.last_poll_success_at,
+  });
 }
 
 async function handleWebhook(request: Request, env: Env): Promise<Response> {
@@ -618,7 +677,7 @@ async function handleMobileSync(url: URL, env: Env, userId: string): Promise<Res
   const changedPullRequests = pagedRows.map((row) => ({
     repo: row.repo_full_name,
     number: row.pr_number,
-    action: row.action,
+    action: normalizeAction(row.action),
     changedAtMs: row.changed_at_ms
   }));
 
@@ -658,6 +717,7 @@ export default {
       "/subscriptions": { POST: true, GET: true, DELETE: true },
       "/mobile/sync": { GET: true },
       "/github-token": { POST: true, DELETE: true },
+      "/github-token/status": { GET: true },
     };
 
     const routeMethods = protectedRoutes[url.pathname];
@@ -692,6 +752,9 @@ export default {
       }
       if (url.pathname === "/github-token" && request.method === "DELETE") {
         return handleDeleteGitHubToken(env, userId);
+      }
+      if (url.pathname === "/github-token/status" && request.method === "GET") {
+        return handleGitHubTokenStatus(env, userId);
       }
     }
 

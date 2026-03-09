@@ -1,4 +1,5 @@
 import type { Env } from "./index";
+import { normalizeAction } from "./normalize";
 import { sendFcmPush } from "./fcm";
 import { decryptToken } from "./crypto";
 
@@ -21,29 +22,40 @@ type UserTokenRow = {
   encrypted_token: string;
   github_login: string;
   last_poll_at: string | null;
+  last_poll_status: string | null;
 };
 
 type DeviceTokenRow = {
   token: string;
 };
 
-function reasonToAction(reason: string): string {
-  switch (reason) {
-    case "review_requested":
-      return "review_requested";
-    case "author":
-      return "updated";
-    case "comment":
-      return "commented";
-    case "mention":
-      return "mentioned";
-    case "assign":
-      return "assigned";
-    case "state_change":
-      return "state_changed";
-    default:
-      return reason;
-  }
+export function reasonToAction(reason: string): string {
+  return normalizeAction(reason);
+}
+
+function buildPrUrl(repo: string, prNumber: number): string {
+  return `https://github.com/${repo}/pull/${prNumber}`;
+}
+
+async function updatePollStatus(
+  db: D1Database,
+  userId: string,
+  status: string,
+  error: string | null,
+  lastPollAt?: string
+): Promise<void> {
+  const nowIso = new Date().toISOString();
+  await db.prepare(
+    `UPDATE user_github_tokens
+     SET last_poll_status = ?,
+         last_poll_error = ?,
+         last_poll_at = COALESCE(?, last_poll_at),
+         last_poll_success_at = CASE WHEN ? = 'ok' OR ? = 'fcm_error' THEN ? ELSE last_poll_success_at END,
+         updated_at = datetime('now')
+     WHERE user_id = ?`
+  )
+    .bind(status, error, lastPollAt ?? null, status, status, nowIso, userId)
+    .run();
 }
 
 export async function resolveDeviceTokensForUser(
@@ -93,7 +105,7 @@ async function pollNotificationsForUser(
 export async function pollAllUsers(env: Env): Promise<void> {
   const startTime = Date.now();
   const users = await env.DB.prepare(
-    "SELECT user_id, encrypted_token, github_login, last_poll_at FROM user_github_tokens"
+    "SELECT user_id, encrypted_token, github_login, last_poll_at, last_poll_status FROM user_github_tokens WHERE last_poll_status IS NULL OR last_poll_status != 'token_revoked'"
   ).all<UserTokenRow>();
 
   for (const user of users.results ?? []) {
@@ -114,6 +126,7 @@ export async function pollAllUsers(env: Env): Promise<void> {
         `Failed to decrypt token for user ${user.user_id}:`,
         err
       );
+      await updatePollStatus(env.DB, user.user_id, "decrypt_error", "decrypt_failed");
       continue;
     }
 
@@ -126,17 +139,19 @@ export async function pollAllUsers(env: Env): Promise<void> {
     } catch (err) {
       if (err instanceof Error && err.message === "TOKEN_REVOKED") {
         console.warn(
-          `Token revoked for user ${user.user_id}, removing`
+          `Token revoked for user ${user.user_id}`
         );
-        await env.DB.prepare(
-          "DELETE FROM user_github_tokens WHERE user_id = ?"
-        )
-          .bind(user.user_id)
-          .run();
+        await updatePollStatus(env.DB, user.user_id, "token_revoked", "TOKEN_REVOKED");
       } else {
         console.error(
           `Failed to poll for user ${user.user_id}:`,
           err
+        );
+        await updatePollStatus(
+          env.DB,
+          user.user_id,
+          "github_error",
+          err instanceof Error ? err.message : "poll_failed"
         );
       }
       continue;
@@ -153,6 +168,8 @@ export async function pollAllUsers(env: Env): Promise<void> {
     );
 
     // Filter to subscribed repos and save changes
+    let hadFcmFailure = false;
+    let firstFcmFailure: string | null = null;
     for (const notif of notifications) {
       const repoName = notif.repository.full_name.toLowerCase();
       if (!subscribedRepos.has(repoName)) continue;
@@ -187,21 +204,30 @@ export async function pollAllUsers(env: Env): Promise<void> {
           action,
           deliveryId,
           sentAt: String(changedAtMs),
+          prTitle: notif.subject.title,
+          prUrl: buildPrUrl(repoName, prNumber),
         };
 
         try {
-          await sendFcmPush(env, payload, deviceToken);
+          const fcmResult = await sendFcmPush(env, payload, deviceToken);
+          if (!fcmResult.success) {
+            hadFcmFailure = true;
+            firstFcmFailure = firstFcmFailure ?? fcmResult.reason;
+          }
         } catch (err) {
           console.error(`FCM push failed for ${user.user_id}:`, err);
+          hadFcmFailure = true;
+          firstFcmFailure = firstFcmFailure ?? "send_failed";
         }
       }
     }
 
     // Update last_poll_at
-    await env.DB.prepare(
-      "UPDATE user_github_tokens SET last_poll_at = ?, updated_at = datetime('now') WHERE user_id = ?"
-    )
-      .bind(new Date().toISOString(), user.user_id)
-      .run();
+    const pollAt = new Date().toISOString();
+    if (hadFcmFailure) {
+      await updatePollStatus(env.DB, user.user_id, "fcm_error", firstFcmFailure, pollAt);
+    } else {
+      await updatePollStatus(env.DB, user.user_id, "ok", null, pollAt);
+    }
   }
 }

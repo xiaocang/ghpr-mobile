@@ -26,6 +26,15 @@ data class DeviceInfo(val platform: String, val tokenPreview: String)
 data class DevicesResponse(val ok: Boolean, val devices: List<DeviceInfo>)
 
 data class SubscriptionsResponse(val ok: Boolean, val subscriptions: List<String>)
+data class GitHubTokenStatusResponse(
+    val ok: Boolean,
+    val configured: Boolean,
+    val githubLogin: String? = null,
+    val lastPollStatus: String? = null,
+    val lastPollError: String? = null,
+    val lastPollAt: String? = null,
+    val lastPollSuccessAt: String? = null,
+)
 
 data class ChangedPr(
     val repo: String,
@@ -73,6 +82,9 @@ interface GhprApi {
 
     @HTTP(method = "DELETE", path = "github-token", hasBody = false)
     suspend fun deleteGitHubToken(): Response<ApiResult>
+
+    @GET("github-token/status")
+    suspend fun githubTokenStatus(): Response<GitHubTokenStatusResponse>
 }
 
 class GhprApiClient(

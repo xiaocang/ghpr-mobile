@@ -85,6 +85,21 @@ class GitHubGraphQLClient(
             updatedAt
             author { login avatarUrl }
             repository { owner { login } name }
+            reviewThreads(last: 20) {
+                nodes {
+                    isResolved
+                    isOutdated
+                }
+                pageInfo {
+                    hasPreviousPage
+                    startCursor
+                }
+            }
+            latestReviews(first: 20) {
+                nodes {
+                    state
+                }
+            }
             commits(last: 1) {
                 nodes {
                     commit {
@@ -143,8 +158,8 @@ class GitHubGraphQLClient(
         val reviewNodes = data?.optJSONObject("reviewRequested")?.optJSONArray("nodes")
 
         val results = mutableListOf<OpenPullRequest>()
-        parseNodes(authoredNodes, PrCategory.AUTHORED, results)
-        parseNodes(reviewNodes, PrCategory.REVIEW_REQUESTED, results)
+        parseNodes(token, authoredNodes, PrCategory.AUTHORED, results)
+        parseNodes(token, reviewNodes, PrCategory.REVIEW_REQUESTED, results)
 
         return BatchResult(results, ssoEntries, missingRepo)
     }
@@ -185,7 +200,8 @@ class GitHubGraphQLClient(
         }
     }
 
-    private fun parseNodes(
+    private suspend fun parseNodes(
+        token: String,
         nodes: JSONArray?,
         category: PrCategory,
         out: MutableList<OpenPullRequest>,
@@ -204,6 +220,31 @@ class GitHubGraphQLClient(
                 ?.optJSONObject("commit")
                 ?.optJSONObject("statusCheckRollup")
                 ?.optString("state")
+            val repoOwner = repo?.optJSONObject("owner")?.optString("login", "").orEmpty()
+            val repoName = repo?.optString("name", "").orEmpty()
+            val approvalCount = node.optJSONObject("latestReviews")
+                ?.optJSONArray("nodes")
+                ?.let { reviews ->
+                    (0 until reviews.length()).count { idx ->
+                        reviews.optJSONObject(idx)?.optString("state") == "APPROVED"
+                    }
+                } ?: 0
+            val reviewThreads = node.optJSONObject("reviewThreads")
+            var unresolvedCount = countUnresolvedThreads(reviewThreads?.optJSONArray("nodes"))
+            if (category == PrCategory.AUTHORED) {
+                val pageInfo = reviewThreads?.optJSONObject("pageInfo")
+                val hasPreviousPage = pageInfo?.optBoolean("hasPreviousPage", false) == true
+                val startCursor = pageInfo?.optString("startCursor").orEmpty()
+                if (hasPreviousPage && startCursor.isNotBlank() && repoOwner.isNotBlank() && repoName.isNotBlank()) {
+                    unresolvedCount += fetchAdditionalUnresolvedCount(
+                        token = token,
+                        repoOwner = repoOwner,
+                        repoName = repoName,
+                        prNumber = node.getInt("number"),
+                        beforeCursor = startCursor,
+                    )
+                }
+            }
 
             out.add(
                 OpenPullRequest(
@@ -215,13 +256,84 @@ class GitHubGraphQLClient(
                     updatedAt = node.getString("updatedAt"),
                     authorLogin = author?.optString("login", "").orEmpty(),
                     authorAvatarUrl = author?.optString("avatarUrl", "").orEmpty(),
-                    repoOwner = repo?.optJSONObject("owner")?.optString("login", "").orEmpty(),
-                    repoName = repo?.optString("name", "").orEmpty(),
+                    repoOwner = repoOwner,
+                    repoName = repoName,
                     ciState = ciState,
+                    approvalCount = approvalCount,
+                    unresolvedCount = unresolvedCount,
                     category = category,
                 ),
             )
         }
+    }
+
+    private fun countUnresolvedThreads(nodes: JSONArray?): Int {
+        if (nodes == null) return 0
+        var count = 0
+        for (i in 0 until nodes.length()) {
+            val thread = nodes.optJSONObject(i) ?: continue
+            val unresolved = !thread.optBoolean("isResolved", false) && !thread.optBoolean("isOutdated", false)
+            if (unresolved) count++
+        }
+        return count
+    }
+
+    private suspend fun fetchAdditionalUnresolvedCount(
+        token: String,
+        repoOwner: String,
+        repoName: String,
+        prNumber: Int,
+        beforeCursor: String,
+    ): Int {
+        var unresolvedCount = 0
+        var cursor = beforeCursor
+        var hasPrevious = true
+
+        while (hasPrevious && cursor.isNotBlank()) {
+            val escapedCursor = cursor.replace("\"", "\\\"")
+            val query = """
+                query {
+                  repository(owner: "${repoOwner.replace("\"", "\\\"")}", name: "${repoName.replace("\"", "\\\"")}") {
+                    pullRequest(number: $prNumber) {
+                      reviewThreads(last: 20, before: "$escapedCursor") {
+                        nodes {
+                          isResolved
+                          isOutdated
+                        }
+                        pageInfo {
+                          hasPreviousPage
+                          startCursor
+                        }
+                      }
+                    }
+                  }
+                }
+            """.trimIndent()
+
+            val body = JSONObject().apply { put("query", query) }
+                .toString()
+                .toRequestBody(jsonMediaType)
+            val request = Request.Builder()
+                .url("https://api.github.com/graphql")
+                .addHeader("Authorization", "Bearer $token")
+                .addHeader("Accept", "application/json")
+                .post(body)
+                .build()
+
+            val response = executeRequest(request)
+            val json = JSONObject(response.payload)
+            val reviewThreads = json.optJSONObject("data")
+                ?.optJSONObject("repository")
+                ?.optJSONObject("pullRequest")
+                ?.optJSONObject("reviewThreads")
+                ?: break
+            unresolvedCount += countUnresolvedThreads(reviewThreads.optJSONArray("nodes"))
+            val pageInfo = reviewThreads.optJSONObject("pageInfo")
+            hasPrevious = pageInfo?.optBoolean("hasPreviousPage", false) == true
+            cursor = pageInfo?.optString("startCursor").orEmpty()
+        }
+
+        return unresolvedCount
     }
 
     /**

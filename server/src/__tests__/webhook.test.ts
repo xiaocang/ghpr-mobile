@@ -39,6 +39,36 @@ describe("buildPushPayload", () => {
     expect(payload!.prNumber).toBe("1");
     expect(payload!.action).toBe("opened");
     expect(payload!.deliveryId).toBe("d-001");
+    expect(payload!.prTitle).toBeUndefined();
+    expect(payload!.prUrl).toBeUndefined();
+  });
+
+  it("normalizes webhook action and carries title/url", () => {
+    const event = {
+      action: "ready_for_review",
+      repository: { full_name: "Owner/Repo" },
+      pull_request: {
+        number: 9,
+        title: "Improve notifier",
+        html_url: "https://github.com/Owner/Repo/pull/9",
+      },
+    };
+    const payload = buildPushPayload(event, "d-002");
+    expect(payload).not.toBeNull();
+    expect(payload!.action).toBe("opened");
+    expect(payload!.prTitle).toBe("Improve notifier");
+    expect(payload!.prUrl).toBe("https://github.com/Owner/Repo/pull/9");
+  });
+
+  it("maps merged closed event to merged action", () => {
+    const event = {
+      action: "closed",
+      repository: { full_name: "Owner/Repo" },
+      pull_request: { number: 7, merged: true },
+    };
+    const payload = buildPushPayload(event, "d-003");
+    expect(payload).not.toBeNull();
+    expect(payload!.action).toBe("merged");
   });
 
   it("returns null for missing repo", () => {
@@ -133,6 +163,29 @@ describe("POST /github/webhook", () => {
     expect(row).not.toBeNull();
     expect(row!.repo_full_name).toBe("owner/repo");
     expect(row!.pr_number).toBe(10);
+  });
+
+  it("stores normalized merged action for merged close webhook", async () => {
+    const req = await webhookRequest(
+      {
+        action: "closed",
+        repository: { full_name: "owner/repo" },
+        pull_request: {
+          number: 11,
+          merged: true,
+          html_url: "https://github.com/owner/repo/pull/11",
+          title: "Merged PR",
+        },
+      },
+      { deliveryId: "store-merged-1" }
+    );
+    await SELF.fetch(req);
+
+    const row = await env.DB
+      .prepare("SELECT action FROM pr_changes WHERE delivery_id = ?")
+      .bind("store-merged-1")
+      .first<{ action: string }>();
+    expect(row?.action).toBe("merged");
   });
 
   it("fans out push to subscribed devices", async () => {

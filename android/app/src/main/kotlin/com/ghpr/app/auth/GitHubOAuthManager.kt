@@ -57,6 +57,15 @@ class GitHubOAuthManager(context: Context) {
         val expiresInSeconds: Int,
     )
 
+    private data class TokenPayload(
+        val accessToken: String,
+        val tokenType: String?,
+        val expiresAtMillis: Long?,
+        val refreshToken: String?,
+        val refreshTokenExpiresAtMillis: Long?,
+        val source: String,
+    )
+
     private fun loadInitialState(): GitHubAuthState {
         val token = prefs.getString(KEY_TOKEN, null)
         val login = prefs.getString(KEY_LOGIN, null)
@@ -178,7 +187,9 @@ class GitHubOAuthManager(context: Context) {
 
             val json = JSONObject(payload)
             if (json.has("access_token")) {
-                onTokenReceived(json.getString("access_token"))
+                val tokenPayload = parseTokenPayload(json, source = "device_flow")
+                    ?: throw GitHubAuthException("GitHub sign-in returned an invalid token payload.")
+                onTokenReceived(tokenPayload)
                 return
             }
 
@@ -196,7 +207,8 @@ class GitHubOAuthManager(context: Context) {
         }
     }
 
-    private suspend fun onTokenReceived(token: String) {
+    private suspend fun onTokenReceived(tokenPayload: TokenPayload) {
+        val token = tokenPayload.accessToken
         val request = Request.Builder()
             .url("https://api.github.com/user")
             .addHeader("Authorization", "Bearer $token")
@@ -224,9 +236,85 @@ class GitHubOAuthManager(context: Context) {
             .putString(KEY_TOKEN, token)
             .putString(KEY_LOGIN, login)
             .putString(KEY_AVATAR_URL, avatarUrl)
+            .putLong(KEY_TOKEN_EXPIRES_AT, tokenPayload.expiresAtMillis ?: 0L)
+            .putString(KEY_REFRESH_TOKEN, tokenPayload.refreshToken)
+            .putLong(KEY_REFRESH_TOKEN_EXPIRES_AT, tokenPayload.refreshTokenExpiresAtMillis ?: 0L)
+            .putString(KEY_TOKEN_TYPE, tokenPayload.tokenType.orEmpty())
+            .putString(KEY_TOKEN_SOURCE, tokenPayload.source)
             .apply()
 
         _authState.value = GitHubAuthState.SignedIn(login, avatarUrl)
+    }
+
+    private fun parseTokenPayload(json: JSONObject, source: String): TokenPayload? {
+        val accessToken = json.optString("access_token", "").trim()
+        if (accessToken.isBlank()) return null
+
+        val expiresInSeconds = json.optLong("expires_in", 0L)
+        val refreshTokenExpiresInSeconds = json.optLong("refresh_token_expires_in", 0L)
+        val nowMillis = System.currentTimeMillis()
+
+        return TokenPayload(
+            accessToken = accessToken,
+            tokenType = json.optString("token_type").ifBlank { null },
+            expiresAtMillis = expiresInSeconds.takeIf { it > 0L }?.let { nowMillis + it * 1000L },
+            refreshToken = json.optString("refresh_token").ifBlank { null },
+            refreshTokenExpiresAtMillis = refreshTokenExpiresInSeconds.takeIf { it > 0L }?.let {
+                nowMillis + it * 1000L
+            },
+            source = source,
+        )
+    }
+
+    suspend fun getTokenForServerSync(): String? {
+        val current = getToken() ?: return null
+        val expiresAtMillis = prefs.getLong(KEY_TOKEN_EXPIRES_AT, 0L).takeIf { it > 0L }
+        val refreshToken = prefs.getString(KEY_REFRESH_TOKEN, null)
+        if (expiresAtMillis == null) return current
+
+        val shouldRefresh = System.currentTimeMillis() >= (expiresAtMillis - 5 * 60 * 1000L)
+        if (!shouldRefresh || refreshToken.isNullOrBlank()) return current
+
+        val refreshed = refreshAccessToken(refreshToken) ?: return current
+        return try {
+            onTokenReceived(refreshed)
+            refreshed.accessToken
+        } catch (_: Exception) {
+            current
+        }
+    }
+
+    private suspend fun refreshAccessToken(refreshToken: String): TokenPayload? {
+        val clientId = BuildConfig.GITHUB_CLIENT_ID
+        if (clientId.isBlank()) return null
+
+        val bodyBuilder = FormBody.Builder()
+            .add("client_id", clientId)
+            .add("grant_type", "refresh_token")
+            .add("refresh_token", refreshToken)
+        val clientSecret = BuildConfig.GITHUB_CLIENT_SECRET
+        if (clientSecret.isNotBlank()) {
+            bodyBuilder.add("client_secret", clientSecret)
+        }
+
+        val request = Request.Builder()
+            .url("https://github.com/login/oauth/access_token")
+            .addHeader("Accept", "application/json")
+            .post(bodyBuilder.build())
+            .build()
+
+        val payload = withContext(Dispatchers.IO) {
+            runCatching {
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@use null
+                    response.body?.string().orEmpty()
+                }
+            }.getOrNull()
+        } ?: return null
+
+        val json = JSONObject(payload)
+        if (json.has("error")) return null
+        return parseTokenPayload(json, source = "refresh_token")
     }
 
     fun getToken(): String? = prefs.getString(KEY_TOKEN, null)
@@ -242,6 +330,11 @@ class GitHubOAuthManager(context: Context) {
         private const val KEY_TOKEN = "github_token"
         private const val KEY_LOGIN = "github_login"
         private const val KEY_AVATAR_URL = "github_avatar_url"
+        private const val KEY_TOKEN_EXPIRES_AT = "github_token_expires_at"
+        private const val KEY_REFRESH_TOKEN = "github_refresh_token"
+        private const val KEY_REFRESH_TOKEN_EXPIRES_AT = "github_refresh_token_expires_at"
+        private const val KEY_TOKEN_TYPE = "github_token_type"
+        private const val KEY_TOKEN_SOURCE = "github_token_source"
     }
 }
 
