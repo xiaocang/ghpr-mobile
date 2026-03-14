@@ -15,6 +15,11 @@ export async function initSchema(): Promise<void> {
   await env.DB.exec("CREATE TABLE IF NOT EXISTS pr_user_involvement (id INTEGER PRIMARY KEY AUTOINCREMENT, repo_full_name TEXT NOT NULL, pr_number INTEGER NOT NULL, github_login TEXT NOT NULL, role TEXT NOT NULL, updated_at_ms INTEGER NOT NULL)");
   await env.DB.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_pr_involvement_unique ON pr_user_involvement (repo_full_name, pr_number, github_login, role)");
   await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_pr_involvement_login ON pr_user_involvement (github_login)");
+  await env.DB.exec("CREATE TABLE IF NOT EXISTS runners (id INTEGER PRIMARY KEY AUTOINCREMENT, device_id TEXT NOT NULL UNIQUE, pairing_token_hash TEXT NOT NULL, label TEXT, user_id TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')), last_seen_at TEXT)");
+  await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_runners_pairing_token_hash ON runners (pairing_token_hash)");
+  await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_runners_user_id ON runners (user_id)");
+  await env.DB.exec("CREATE TABLE IF NOT EXISTS runner_commands (id INTEGER PRIMARY KEY AUTOINCREMENT, runner_id INTEGER NOT NULL REFERENCES runners(id), user_id TEXT NOT NULL, command_type TEXT NOT NULL, payload TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', result TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')))");
+  await env.DB.exec("CREATE INDEX IF NOT EXISTS idx_runner_commands_runner_status ON runner_commands (runner_id, status)");
 }
 
 export async function resetDb(): Promise<void> {
@@ -24,7 +29,9 @@ export async function resetDb(): Promise<void> {
      DELETE FROM device_tokens;
      DELETE FROM webhook_deliveries;
      DELETE FROM user_github_tokens;
-     DELETE FROM pr_user_involvement;`
+     DELETE FROM pr_user_involvement;
+     DELETE FROM runner_commands;
+     DELETE FROM runners;`
   );
 }
 

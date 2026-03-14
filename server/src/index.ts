@@ -8,6 +8,15 @@ import {
   type PushDataPayload,
   type FcmSendResult,
 } from "./fcm";
+import {
+  requireRunnerAuth,
+  handleRunnerRegister,
+  handleRunnerStatus,
+  handleRunnerUnregister,
+  handlePollCommands,
+  handleCommandResult,
+  handleSubmitCommand,
+} from "./runner";
 
 export type { PushDataPayload, FcmSendResult };
 export { sendFcmPush, resetAccessTokenCache, cachedAccessToken };
@@ -775,6 +784,8 @@ export default {
       "/mobile/sync": { GET: true },
       "/github-token": { POST: true, DELETE: true },
       "/github-token/status": { GET: true },
+      "/runners/register": { POST: true },
+      "/commands/retry-ci": { POST: true },
     };
 
     const routeMethods = protectedRoutes[url.pathname];
@@ -812,6 +823,45 @@ export default {
       }
       if (url.pathname === "/github-token/status" && request.method === "GET") {
         return handleGitHubTokenStatus(env, userId);
+      }
+      if (url.pathname === "/runners/register" && request.method === "POST") {
+        return handleRunnerRegister(request, env, userId);
+      }
+      if (url.pathname === "/commands/retry-ci" && request.method === "POST") {
+        return handleSubmitCommand(request, env, userId);
+      }
+    }
+
+    // Runner-authenticated routes (x-runner-token header)
+    const runnerRoutes: Record<string, Record<string, true>> = {
+      "/runners/status": { GET: true },
+      "/runners/register": { DELETE: true },
+      "/runners/commands/poll": { GET: true },
+    };
+
+    // Match /runners/commands/:id/result
+    const commandResultMatch = url.pathname.match(/^\/runners\/commands\/(\d+)\/result$/);
+    if (commandResultMatch && request.method === "POST") {
+      const runnerAuth = await requireRunnerAuth(request, env);
+      if (runnerAuth instanceof Response) return runnerAuth;
+      const commandId = parseInt(commandResultMatch[1], 10);
+      return handleCommandResult(request, env, runnerAuth.runner, commandId);
+    }
+
+    const runnerRouteMethods = runnerRoutes[url.pathname];
+    if (runnerRouteMethods && runnerRouteMethods[request.method]) {
+      const runnerAuth = await requireRunnerAuth(request, env);
+      if (runnerAuth instanceof Response) return runnerAuth;
+      const { runner } = runnerAuth;
+
+      if (url.pathname === "/runners/status" && request.method === "GET") {
+        return handleRunnerStatus(request, env, runner);
+      }
+      if (url.pathname === "/runners/register" && request.method === "DELETE") {
+        return handleRunnerUnregister(request, env, runner);
+      }
+      if (url.pathname === "/runners/commands/poll" && request.method === "GET") {
+        return handlePollCommands(request, env, runner);
       }
     }
 

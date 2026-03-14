@@ -1,0 +1,145 @@
+mod api;
+mod commands;
+mod config;
+mod device;
+
+use api::{CommandResultRequest, RegisterRequest, WorkerApi};
+use clap::{Parser, Subcommand};
+
+#[derive(Parser)]
+#[command(name = "ghpr-runner", about = "GHPr runner client")]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Register this device as a runner
+    Register {
+        /// API key for user authentication
+        #[arg(long, env = "GHPR_API_KEY")]
+        api_key: String,
+
+        /// User ID to bind runner to
+        #[arg(long, env = "GHPR_USER_ID")]
+        user_id: String,
+
+        /// Optional label for this runner
+        #[arg(long)]
+        label: Option<String>,
+    },
+    /// Start polling for and executing commands
+    Run,
+    /// Check runner status
+    Status,
+}
+
+#[tokio::main]
+async fn main() {
+    let cli = Cli::parse();
+
+    match cli.command {
+        Commands::Register {
+            api_key,
+            user_id,
+            label,
+        } => {
+            if let Err(e) = cmd_register(&api_key, &user_id, label).await {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            }
+        }
+        Commands::Run => {
+            if let Err(e) = cmd_run().await {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            }
+        }
+        Commands::Status => {
+            if let Err(e) = cmd_status().await {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+}
+
+async fn cmd_register(api_key: &str, user_id: &str, label: Option<String>) -> Result<(), String> {
+    let cfg = config::Config::from_env()?;
+    let device_id = device::device_id()?;
+    let pairing_token = device::pairing_token()?;
+
+    let worker = WorkerApi::new(&cfg.worker_url, &pairing_token);
+
+    let req = RegisterRequest {
+        device_id: device_id.clone(),
+        pairing_token: pairing_token.clone(),
+        label,
+    };
+
+    let res = worker.register(api_key, user_id, &req).await?;
+    if res.ok {
+        println!("Runner registered successfully.");
+        println!("  Device ID: {device_id}");
+        println!("  Pairing token saved to ~/.ghpr-runner/pairing_token");
+    } else {
+        return Err(format!(
+            "registration failed: {}",
+            res.error.unwrap_or_default()
+        ));
+    }
+
+    Ok(())
+}
+
+async fn cmd_run() -> Result<(), String> {
+    let cfg = config::Config::from_env()?;
+    let pairing_token = device::pairing_token()?;
+    let worker = WorkerApi::new(&cfg.worker_url, &pairing_token);
+
+    println!(
+        "Runner started. Polling every {}s...",
+        cfg.poll_interval.as_secs()
+    );
+
+    loop {
+        match worker.poll_commands().await {
+            Ok(poll) => {
+                for cmd in &poll.commands {
+                    println!(
+                        "Executing command #{}: {}",
+                        cmd.id, cmd.command_type
+                    );
+
+                    let (status, result) =
+                        commands::execute(&cmd.command_type, &cmd.payload, &cfg.github_token).await;
+
+                    println!("  Result: {status}");
+
+                    let report = CommandResultRequest { status, result };
+                    match worker.report_result(cmd.id, &report).await {
+                        Ok(_) => println!("  Reported to worker."),
+                        Err(e) => eprintln!("  Failed to report: {e}"),
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("Poll error: {e}");
+            }
+        }
+
+        tokio::time::sleep(cfg.poll_interval).await;
+    }
+}
+
+async fn cmd_status() -> Result<(), String> {
+    let cfg = config::Config::from_env()?;
+    let pairing_token = device::pairing_token()?;
+    let worker = WorkerApi::new(&cfg.worker_url, &pairing_token);
+
+    let status = worker.status().await?;
+    println!("{}", serde_json::to_string_pretty(&status).unwrap());
+
+    Ok(())
+}
