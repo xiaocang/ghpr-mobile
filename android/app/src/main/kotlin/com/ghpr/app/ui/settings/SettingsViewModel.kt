@@ -1,6 +1,5 @@
 package com.ghpr.app.ui.settings
 
-import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ghpr.app.auth.FirebaseAuthManager
@@ -10,8 +9,7 @@ import com.ghpr.app.data.DataStoreNotificationSettingsStore
 import com.ghpr.app.data.DataStorePollingModeStore
 import com.ghpr.app.data.DataStoreRefreshSettingsStore
 import com.ghpr.app.data.GhprApiClient
-import com.ghpr.app.data.GitHubTokenStatusResponse
-import com.ghpr.app.data.GitHubTokenSyncWorker
+import com.ghpr.app.data.RunnerStatusResponse
 import com.ghpr.app.data.PollingMode
 import com.ghpr.app.data.PollingScheduler
 import com.ghpr.domain.refresh.RefreshSettings
@@ -32,11 +30,11 @@ data class SettingsUiState(
     val serverBaseUrl: String = "",
     val appVersion: String = "",
     val pollingMode: PollingMode = PollingMode.CLIENT,
-    val showServerModeConfirmDialog: Boolean = false,
-    val serverPollingStatus: String = "Unknown",
-    val serverPollingError: String? = null,
-    val serverLastPollAt: String? = null,
-    val serverLastPollSuccessAt: String? = null,
+    val showRunnerModeConfirmDialog: Boolean = false,
+    val runnerPollingStatus: String = "Unknown",
+    val runnerPollingError: String? = null,
+    val runnerLastPollAt: String? = null,
+    val runnerLastSeenAt: String? = null,
 )
 
 class SettingsViewModel(
@@ -49,22 +47,21 @@ class SettingsViewModel(
     private val pollingModeStore: DataStorePollingModeStore,
     private val pollingScheduler: PollingScheduler,
     private val apiClient: GhprApiClient,
-    private val applicationContext: Context,
 ) : ViewModel() {
 
     private val refreshInterval = MutableStateFlow(
         (refreshSettingsStore.read().minIntervalMillis / 60_000L).toInt(),
     )
 
-    private val _showServerConfirmDialog = MutableStateFlow(false)
-    private val serverTokenStatus = MutableStateFlow<GitHubTokenStatusResponse?>(null)
+    private val _showRunnerConfirmDialog = MutableStateFlow(false)
+    private val runnerStatus = MutableStateFlow<RunnerStatusResponse?>(null)
 
     init {
         viewModelScope.launch {
             gitHubOAuthManager.authState
                 .filter { it is GitHubAuthState.SignedIn }
                 .collect {
-                    refreshServerPollingStatus()
+                    refreshRunnerPollingStatus()
                 }
         }
     }
@@ -74,15 +71,15 @@ class SettingsViewModel(
         refreshInterval,
         notificationSettingsStore.notificationsEnabled,
         pollingModeStore.pollingMode,
-        _showServerConfirmDialog,
-        serverTokenStatus,
+        _showRunnerConfirmDialog,
+        runnerStatus,
     ) { values ->
         val authState = values[0] as GitHubAuthState
         val interval = values[1] as Int
         val notifEnabled = values[2] as Boolean
         val pollMode = values[3] as PollingMode
         val showDialog = values[4] as Boolean
-        val tokenStatus = values[5] as GitHubTokenStatusResponse?
+        val rStatus = values[5] as RunnerStatusResponse?
         SettingsUiState(
             gitHubAuthState = authState,
             refreshIntervalMinutes = interval,
@@ -96,16 +93,16 @@ class SettingsViewModel(
             serverBaseUrl = serverBaseUrl,
             appVersion = appVersion,
             pollingMode = pollMode,
-            showServerModeConfirmDialog = showDialog,
-            serverPollingStatus = when {
-                tokenStatus == null -> "Unknown"
-                !tokenStatus.configured -> "Not configured"
-                tokenStatus.lastPollStatus.isNullOrBlank() -> "No polls yet"
-                else -> tokenStatus.lastPollStatus
+            showRunnerModeConfirmDialog = showDialog,
+            runnerPollingStatus = when {
+                rStatus == null -> "Unknown"
+                rStatus.deviceId == null -> "No runner registered"
+                rStatus.lastPollStatus.isNullOrBlank() -> "No polls yet"
+                else -> rStatus.lastPollStatus
             },
-            serverPollingError = tokenStatus?.lastPollError,
-            serverLastPollAt = tokenStatus?.lastPollAt,
-            serverLastPollSuccessAt = tokenStatus?.lastPollSuccessAt,
+            runnerPollingError = rStatus?.lastPollError,
+            runnerLastPollAt = rStatus?.lastPollAt,
+            runnerLastSeenAt = rStatus?.lastSeenAt,
         )
     }.stateIn(
         viewModelScope,
@@ -130,11 +127,9 @@ class SettingsViewModel(
 
     fun signOutGitHub() {
         viewModelScope.launch {
-            try { apiClient.api.deleteGitHubToken() } catch (_: Exception) {}
             pollingScheduler.cancelClientPolling()
-            pollingScheduler.cancelGrantRefresh()
             pollingModeStore.setPollingMode(PollingMode.OFF)
-            serverTokenStatus.value = null
+            runnerStatus.value = null
         }
         gitHubOAuthManager.signOut()
     }
@@ -151,20 +146,20 @@ class SettingsViewModel(
     }
 
     fun requestPollingMode(mode: PollingMode) {
-        if (mode == PollingMode.SERVER) {
-            _showServerConfirmDialog.value = true
+        if (mode == PollingMode.RUNNER) {
+            _showRunnerConfirmDialog.value = true
         } else {
             setPollingMode(mode)
         }
     }
 
-    fun confirmServerMode() {
-        _showServerConfirmDialog.value = false
-        setPollingMode(PollingMode.SERVER)
+    fun confirmRunnerMode() {
+        _showRunnerConfirmDialog.value = false
+        setPollingMode(PollingMode.RUNNER)
     }
 
-    fun dismissServerModeDialog() {
-        _showServerConfirmDialog.value = false
+    fun dismissRunnerModeDialog() {
+        _showRunnerConfirmDialog.value = false
     }
 
     private fun setPollingMode(mode: PollingMode) {
@@ -172,31 +167,25 @@ class SettingsViewModel(
             pollingModeStore.setPollingMode(mode)
             when (mode) {
                 PollingMode.CLIENT -> {
-                    try { apiClient.api.deleteGitHubToken() } catch (_: Exception) {}
-                    pollingScheduler.cancelGrantRefresh()
                     pollingScheduler.scheduleClientPolling()
                 }
-                PollingMode.SERVER -> {
-                    GitHubTokenSyncWorker.enqueue(applicationContext)
+                PollingMode.RUNNER -> {
                     pollingScheduler.cancelClientPolling()
-                    pollingScheduler.scheduleGrantRefresh()
-                    refreshServerPollingStatus()
+                    refreshRunnerPollingStatus()
                 }
                 PollingMode.OFF -> {
-                    try { apiClient.api.deleteGitHubToken() } catch (_: Exception) {}
                     pollingScheduler.cancelClientPolling()
-                    pollingScheduler.cancelGrantRefresh()
                 }
             }
         }
     }
 
-    fun refreshServerPollingStatus() {
+    fun refreshRunnerPollingStatus() {
         viewModelScope.launch {
-            runCatching { apiClient.api.githubTokenStatus() }
+            runCatching { apiClient.api.runnerStatus() }
                 .onSuccess { response ->
                     if (response.isSuccessful) {
-                        serverTokenStatus.value = response.body()
+                        runnerStatus.value = response.body()
                     }
                 }
         }

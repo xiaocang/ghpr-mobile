@@ -20,20 +20,18 @@ data class RegisterDeviceRequest(val token: String, val platform: String = "andr
 data class SubscribeRepoRequest(val repoFullName: String)
 data class UnsubscribeRepoRequest(val repoFullName: String)
 data class UnregisterDeviceRequest(val token: String)
-data class StoreGitHubTokenRequest(val githubToken: String, val githubLogin: String)
-
 data class DeviceInfo(val platform: String, val tokenPreview: String)
 data class DevicesResponse(val ok: Boolean, val devices: List<DeviceInfo>)
 
 data class SubscriptionsResponse(val ok: Boolean, val subscriptions: List<String>)
-data class GitHubTokenStatusResponse(
+data class RunnerStatusResponse(
     val ok: Boolean,
-    val configured: Boolean,
+    val deviceId: String? = null,
     val githubLogin: String? = null,
     val lastPollStatus: String? = null,
     val lastPollError: String? = null,
     val lastPollAt: String? = null,
-    val lastPollSuccessAt: String? = null,
+    val lastSeenAt: String? = null,
 )
 
 data class ChangedPr(
@@ -77,14 +75,8 @@ interface GhprApi {
         @Query("limit") limit: Int = 100,
     ): Response<SyncResponse>
 
-    @POST("github-token")
-    suspend fun storeGitHubToken(@Body body: StoreGitHubTokenRequest): Response<ApiResult>
-
-    @HTTP(method = "DELETE", path = "github-token", hasBody = false)
-    suspend fun deleteGitHubToken(): Response<ApiResult>
-
-    @GET("github-token/status")
-    suspend fun githubTokenStatus(): Response<GitHubTokenStatusResponse>
+    @GET("runners/poll-info")
+    suspend fun runnerStatus(): Response<RunnerStatusResponse>
 }
 
 class GhprApiClient(

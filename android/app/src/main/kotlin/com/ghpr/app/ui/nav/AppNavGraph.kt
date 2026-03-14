@@ -130,7 +130,6 @@ fun AppNavGraph(container: AppContainer) {
                         pollingModeStore = container.pollingModeStore,
                         pollingScheduler = container.pollingScheduler,
                         apiClient = container.apiClient,
-                        applicationContext = navController.context.applicationContext,
                     )
                 }
                 SettingsScreen(

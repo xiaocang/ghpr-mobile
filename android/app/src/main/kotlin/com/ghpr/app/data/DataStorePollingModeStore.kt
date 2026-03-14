@@ -9,7 +9,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
-enum class PollingMode { CLIENT, SERVER, OFF }
+enum class PollingMode { CLIENT, RUNNER, OFF }
 
 private val Context.pollingModeDataStore: DataStore<Preferences> by preferencesDataStore(
     name = "polling_mode",
@@ -22,7 +22,7 @@ class DataStorePollingModeStore(private val context: Context) {
     val pollingMode: Flow<PollingMode> = context.pollingModeDataStore.data
         .map { prefs ->
             when (prefs[pollingModeKey]) {
-                "SERVER" -> PollingMode.SERVER
+                "RUNNER", "SERVER" -> PollingMode.RUNNER
                 "OFF" -> PollingMode.OFF
                 else -> PollingMode.CLIENT
             }

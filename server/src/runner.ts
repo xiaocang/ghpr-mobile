@@ -1,17 +1,27 @@
 import type { Env } from "./index";
+import { normalizeAction } from "./normalize";
+import {
+  sendFcmPush,
+  type PushDataPayload,
+} from "./fcm";
 
 type RunnerRegisterBody = {
   deviceId?: string;
   pairingToken?: string;
   label?: string;
+  githubLogin?: string;
 };
 
-type RunnerRow = {
+export type RunnerRow = {
   id: number;
   device_id: string;
   pairing_token_hash: string;
   label: string | null;
   user_id: string;
+  github_login: string | null;
+  last_poll_status: string | null;
+  last_poll_error: string | null;
+  last_poll_at: string | null;
   created_at: string;
   last_seen_at: string | null;
 };
@@ -30,16 +40,24 @@ type SubmitCommandBody = {
   prNumber?: number;
 };
 
-type RunnerCommandRow = {
-  id: number;
-  runner_id: number;
-  user_id: string;
-  command_type: string;
-  payload: string;
-  status: string;
-  result: string | null;
-  created_at: string;
-  updated_at: string;
+type SyncNotification = {
+  repo?: string;
+  prNumber?: number;
+  action?: string;
+  prTitle?: string;
+  prUrl?: string;
+  author?: string;
+  reviewers?: string[];
+  mentionedUser?: string;
+};
+
+type SyncBody = {
+  notifications?: SyncNotification[];
+};
+
+type PollStatusBody = {
+  status?: string;
+  error?: string | null;
 };
 
 const encoder = new TextEncoder();
@@ -109,6 +127,7 @@ export async function handleRunnerRegister(
   const deviceId = body.deviceId?.trim() ?? "";
   const pairingToken = body.pairingToken?.trim() ?? "";
   const label = body.label?.trim() || null;
+  const githubLogin = body.githubLogin?.trim().toLowerCase() ?? "";
 
   if (!deviceId) {
     return jsonResponse({ error: "deviceId is required" }, 400);
@@ -116,21 +135,58 @@ export async function handleRunnerRegister(
   if (!pairingToken) {
     return jsonResponse({ error: "pairingToken is required" }, 400);
   }
+  if (!githubLogin) {
+    return jsonResponse({ error: "githubLogin is required" }, 400);
+  }
 
   const tokenHash = await hashPairingToken(pairingToken);
 
   await env.DB.prepare(
-    `INSERT INTO runners (device_id, pairing_token_hash, label, user_id, created_at)
-     VALUES (?, ?, ?, ?, datetime('now'))
+    `INSERT INTO runners (device_id, pairing_token_hash, label, user_id, github_login, created_at)
+     VALUES (?, ?, ?, ?, ?, datetime('now'))
      ON CONFLICT(device_id) DO UPDATE SET
        pairing_token_hash = excluded.pairing_token_hash,
        label = excluded.label,
-       user_id = excluded.user_id`
+       user_id = excluded.user_id,
+       github_login = excluded.github_login`
   )
-    .bind(deviceId, tokenHash, label, userId)
+    .bind(deviceId, tokenHash, label, userId, githubLogin)
     .run();
 
   return jsonResponse({ ok: true });
+}
+
+export async function handleRunnerPollInfo(
+  env: Env,
+  userId: string
+): Promise<Response> {
+  const runner = await env.DB.prepare(
+    "SELECT * FROM runners WHERE user_id = ? LIMIT 1"
+  )
+    .bind(userId)
+    .first<RunnerRow>();
+
+  if (!runner) {
+    return jsonResponse({
+      ok: true,
+      deviceId: null,
+      githubLogin: null,
+      lastPollStatus: null,
+      lastPollError: null,
+      lastPollAt: null,
+      lastSeenAt: null,
+    });
+  }
+
+  return jsonResponse({
+    ok: true,
+    deviceId: runner.device_id,
+    githubLogin: runner.github_login,
+    lastPollStatus: runner.last_poll_status,
+    lastPollError: runner.last_poll_error,
+    lastPollAt: runner.last_poll_at,
+    lastSeenAt: runner.last_seen_at,
+  });
 }
 
 export async function handleRunnerStatus(
@@ -143,6 +199,10 @@ export async function handleRunnerStatus(
     deviceId: runner.device_id,
     label: runner.label,
     userId: runner.user_id,
+    githubLogin: runner.github_login,
+    lastPollStatus: runner.last_poll_status,
+    lastPollError: runner.last_poll_error,
+    lastPollAt: runner.last_poll_at,
     createdAt: runner.created_at,
     lastSeenAt: runner.last_seen_at,
   });
@@ -159,6 +219,179 @@ export async function handleRunnerUnregister(
   ]);
 
   return jsonResponse({ ok: true });
+}
+
+export async function handleRunnerSync(
+  request: Request,
+  env: Env,
+  runner: RunnerRow
+): Promise<Response> {
+  const body = await parseJsonBody<SyncBody>(request);
+  if (!body) {
+    return jsonResponse({ error: "invalid json" }, 400);
+  }
+
+  const notifications = body.notifications ?? [];
+  if (notifications.length === 0) {
+    return jsonResponse({ ok: true, syncedCount: 0, pushedCount: 0 });
+  }
+
+  let syncedCount = 0;
+  let pushedCount = 0;
+  const now = Date.now();
+
+  for (const notif of notifications) {
+    const repo = notif.repo?.trim().toLowerCase() ?? "";
+    const prNumber = notif.prNumber;
+    const actionRaw = notif.action?.trim() ?? "";
+    const action = normalizeAction(actionRaw);
+
+    if (!repo || !prNumber || prNumber <= 0 || !actionRaw) {
+      continue;
+    }
+
+    const deliveryId = `runner-${runner.id}-${repo}-${prNumber}-${now}`;
+
+    // Save PR change
+    await env.DB.prepare(
+      `INSERT INTO pr_changes (delivery_id, repo_full_name, pr_number, action, changed_at_ms)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(delivery_id) DO NOTHING`
+    )
+      .bind(deliveryId, repo, prNumber, action, now)
+      .run();
+
+    // Save PR involvement
+    const upsertSql = `INSERT INTO pr_user_involvement (repo_full_name, pr_number, github_login, role, updated_at_ms)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(repo_full_name, pr_number, github_login, role)
+       DO UPDATE SET updated_at_ms = excluded.updated_at_ms`;
+
+    const stmts: D1PreparedStatement[] = [];
+
+    const author = notif.author?.trim().toLowerCase();
+    if (author) {
+      stmts.push(env.DB.prepare(upsertSql).bind(repo, prNumber, author, "author", now));
+    }
+
+    for (const reviewer of notif.reviewers ?? []) {
+      const login = reviewer.trim().toLowerCase();
+      if (login) {
+        stmts.push(env.DB.prepare(upsertSql).bind(repo, prNumber, login, "reviewer", now));
+      }
+    }
+
+    const mentioned = notif.mentionedUser?.trim().toLowerCase();
+    if (mentioned) {
+      stmts.push(env.DB.prepare(upsertSql).bind(repo, prNumber, mentioned, "mentioned", now));
+    }
+
+    if (stmts.length > 0) {
+      await env.DB.batch(stmts);
+    }
+
+    syncedCount++;
+
+    // Fan out FCM push
+    const tokens = await resolveDeviceTokensForPr(env.DB, repo, prNumber);
+    const payload: PushDataPayload = {
+      type: "pr_update",
+      repo,
+      prNumber: String(prNumber),
+      action,
+      deliveryId,
+      sentAt: String(now),
+      prTitle: notif.prTitle?.trim() || undefined,
+      prUrl: notif.prUrl?.trim() || undefined,
+    };
+
+    for (const deviceToken of tokens) {
+      try {
+        const result = await sendFcmPush(env, payload, deviceToken);
+        if (result.success) {
+          pushedCount++;
+        }
+        if (!result.success && result.deleteToken) {
+          await env.DB.prepare("DELETE FROM device_tokens WHERE token = ?")
+            .bind(deviceToken)
+            .run();
+        }
+      } catch (err) {
+        console.error(`FCM send failed for token ${deviceToken.slice(0, 6)}...`, err);
+      }
+    }
+  }
+
+  return jsonResponse({ ok: true, syncedCount, pushedCount });
+}
+
+async function resolveDeviceTokensForPr(
+  db: D1Database,
+  repoFullName: string,
+  prNumber: number
+): Promise<string[]> {
+  const result = await db
+    .prepare(
+      `SELECT DISTINCT dt.token AS token
+       FROM repo_subscriptions rs
+       JOIN device_tokens dt ON dt.user_id = rs.user_id
+       JOIN runners r ON r.user_id = rs.user_id
+       JOIN pr_user_involvement pui
+         ON pui.repo_full_name = rs.repo_full_name
+         AND pui.pr_number = ?
+         AND LOWER(pui.github_login) = LOWER(r.github_login)
+       WHERE rs.repo_full_name = ?`
+    )
+    .bind(prNumber, repoFullName)
+    .all<{ token: string }>();
+
+  return (result.results ?? []).map((row) => row.token);
+}
+
+export async function handleRunnerPollStatus(
+  request: Request,
+  env: Env,
+  runner: RunnerRow
+): Promise<Response> {
+  const body = await parseJsonBody<PollStatusBody>(request);
+  if (!body) {
+    return jsonResponse({ error: "invalid json" }, 400);
+  }
+
+  const status = body.status?.trim() ?? "";
+  if (!status) {
+    return jsonResponse({ error: "status is required" }, 400);
+  }
+
+  await env.DB.prepare(
+    `UPDATE runners
+     SET last_poll_status = ?, last_poll_error = ?, last_poll_at = datetime('now')
+     WHERE id = ?`
+  )
+    .bind(status, body.error?.trim() ?? null, runner.id)
+    .run();
+
+  return jsonResponse({ ok: true });
+}
+
+export async function handleListRunnerSubscriptions(
+  _request: Request,
+  env: Env,
+  runner: RunnerRow
+): Promise<Response> {
+  const result = await env.DB.prepare(
+    `SELECT repo_full_name
+     FROM repo_subscriptions
+     WHERE user_id = ?
+     ORDER BY repo_full_name ASC`
+  )
+    .bind(runner.user_id)
+    .all<{ repo_full_name: string }>();
+
+  return jsonResponse({
+    ok: true,
+    subscriptions: (result.results ?? []).map((row) => row.repo_full_name),
+  });
 }
 
 export async function handlePollCommands(

@@ -2,6 +2,7 @@ mod api;
 mod commands;
 mod config;
 mod device;
+mod poller;
 
 use api::{CommandResultRequest, RegisterRequest, WorkerApi};
 use clap::{Parser, Subcommand};
@@ -70,11 +71,17 @@ async fn cmd_register(api_key: &str, user_id: &str, label: Option<String>) -> Re
     let device_id = device::device_id()?;
     let pairing_token = device::pairing_token()?;
 
+    // Fetch GitHub login from token
+    println!("Fetching GitHub login...");
+    let github_login = poller::fetch_github_login(&cfg.github_token).await?;
+    println!("  GitHub login: {github_login}");
+
     let worker = WorkerApi::new(&cfg.worker_url, &pairing_token);
 
     let req = RegisterRequest {
         device_id: device_id.clone(),
         pairing_token: pairing_token.clone(),
+        github_login,
         label,
     };
 
@@ -98,12 +105,23 @@ async fn cmd_run() -> Result<(), String> {
     let pairing_token = device::pairing_token()?;
     let worker = WorkerApi::new(&cfg.worker_url, &pairing_token);
 
+    // Fetch subscriptions
+    let subs = worker.list_subscriptions().await?;
+    let subscriptions = subs.subscriptions;
     println!(
-        "Runner started. Polling every {}s...",
+        "Runner started. {} subscriptions, polling every {}s...",
+        subscriptions.len(),
         cfg.poll_interval.as_secs()
     );
 
+    let mut last_modified: Option<String> = None;
+
     loop {
+        // 1. Poll GitHub notifications and sync to worker
+        poller::poll_and_sync(&worker, &cfg.github_token, &subscriptions, &mut last_modified)
+            .await;
+
+        // 2. Poll and execute commands from worker
         match worker.poll_commands().await {
             Ok(poll) => {
                 for cmd in &poll.commands {

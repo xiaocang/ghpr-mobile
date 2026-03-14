@@ -192,7 +192,7 @@ describe("POST /github/webhook", () => {
     await env.DB.exec(
       `INSERT INTO device_tokens (user_id, token, platform) VALUES ('u1', 'tok-1', 'android');
        INSERT INTO repo_subscriptions (user_id, repo_full_name) VALUES ('u1', 'owner/repo');
-       INSERT INTO user_github_tokens (user_id, encrypted_token, github_login) VALUES ('u1', 'enc-tok', 'testuser');`
+       INSERT INTO runners (device_id, pairing_token_hash, user_id, github_login) VALUES ('dev-1', 'hash-1', 'u1', 'testuser');`
     );
 
     const req = await webhookRequest(makePrEvent("owner/repo", 5, "opened", "testuser"), {

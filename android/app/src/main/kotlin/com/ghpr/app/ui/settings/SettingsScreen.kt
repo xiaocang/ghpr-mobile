@@ -159,20 +159,20 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                     onSelect = viewModel::requestPollingMode,
                 )
             }
-            if (state.showServerModeConfirmDialog) {
-                ServerModeConfirmDialog(
-                    onConfirm = viewModel::confirmServerMode,
-                    onDismiss = viewModel::dismissServerModeDialog,
+            if (state.showRunnerModeConfirmDialog) {
+                RunnerModeConfirmDialog(
+                    onConfirm = viewModel::confirmRunnerMode,
+                    onDismiss = viewModel::dismissRunnerModeDialog,
                 )
             }
 
-            SectionHeader("Server Polling")
+            SectionHeader("Runner Polling")
             SettingsCard {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    InfoRow("Status", state.serverPollingStatus)
-                    InfoRow("Last poll", state.serverLastPollAt ?: "N/A")
-                    InfoRow("Last success", state.serverLastPollSuccessAt ?: "N/A")
-                    val pollingError = state.serverPollingError
+                    InfoRow("Status", state.runnerPollingStatus)
+                    InfoRow("Last poll", state.runnerLastPollAt ?: "N/A")
+                    InfoRow("Last seen", state.runnerLastSeenAt ?: "N/A")
+                    val pollingError = state.runnerPollingError
                     if (!pollingError.isNullOrBlank()) {
                         Text(
                             text = pollingError,
@@ -180,7 +180,7 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                             color = MaterialTheme.colorScheme.error,
                         )
                     }
-                    NeoButton(onClick = viewModel::refreshServerPollingStatus) {
+                    NeoButton(onClick = viewModel::refreshRunnerPollingStatus) {
                         Text("Refresh status")
                     }
                 }
@@ -376,7 +376,7 @@ private fun NotificationModePicker(
                     Text(
                         text = when (mode) {
                             PollingMode.CLIENT -> "Client polling"
-                            PollingMode.SERVER -> "Server polling"
+                            PollingMode.RUNNER -> "Runner polling"
                             PollingMode.OFF -> "Off"
                         },
                         style = MaterialTheme.typography.bodyLarge,
@@ -384,7 +384,7 @@ private fun NotificationModePicker(
                     Text(
                         text = when (mode) {
                             PollingMode.CLIENT -> "Poll GitHub every 15 min from device"
-                            PollingMode.SERVER -> "Server polls every 5 min (sends token to server)"
+                            PollingMode.RUNNER -> "Runner polls GitHub (requires registered runner)"
                             PollingMode.OFF -> "No background notifications"
                         },
                         style = MaterialTheme.typography.bodySmall,
@@ -397,17 +397,17 @@ private fun NotificationModePicker(
 }
 
 @Composable
-private fun ServerModeConfirmDialog(
+private fun RunnerModeConfirmDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Enable server polling?") },
+        title = { Text("Enable runner polling?") },
         text = {
             Text(
-                "This will send your GitHub token to the server for encrypted storage. " +
-                    "The server will poll GitHub on your behalf every 5 minutes for more timely notifications."
+                "This will use your registered runner to poll GitHub notifications. " +
+                    "A runner must be registered and running on your machine for this to work."
             )
         },
         confirmButton = {
