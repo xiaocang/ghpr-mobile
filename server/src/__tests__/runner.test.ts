@@ -7,7 +7,7 @@ import {
   jsonRequest,
   apiHeaders,
 } from "./helpers";
-import { hashPairingToken } from "../runner";
+import { hashPairingToken, cleanupStaleCommands } from "../runner";
 
 beforeAll(initSchema);
 beforeEach(resetDb);
@@ -1097,5 +1097,134 @@ describe("DELETE /commands/retry-flaky (cancel)", () => {
     });
     const res = await SELF.fetch(req);
     expect(res.status).toBe(401);
+  });
+});
+
+describe("cleanupStaleCommands", () => {
+  async function insertCommand(
+    runnerId: number,
+    status: string,
+    updatedAt: string,
+    commandType: string = "retry-ci"
+  ): Promise<number> {
+    const result = await env.DB.prepare(
+      `INSERT INTO runner_commands (runner_id, user_id, command_type, payload, status, created_at, updated_at)
+       VALUES (?, 'u1', ?, '{}', ?, datetime('now'), datetime('now', ?))`,
+    ).bind(runnerId, commandType, status, updatedAt).run();
+    return result.meta.last_row_id as number;
+  }
+
+  async function insertJob(
+    runnerId: number,
+    prNumber: number,
+    status: string,
+    updatedAt: string,
+  ): Promise<number> {
+    const result = await env.DB.prepare(
+      `INSERT INTO flaky_retry_jobs (repo_full_name, pr_number, user_id, runner_id, retries_remaining, workflow_attempts, status, created_at, updated_at)
+       VALUES ('owner/repo', ?, 'u1', ?, 3, '{}', ?, datetime('now'), datetime('now', ?))`,
+    ).bind(prNumber, runnerId, status, updatedAt).run();
+    return result.meta.last_row_id as number;
+  }
+
+  async function getRunnerId(): Promise<number> {
+    await registerRunner("device-cleanup", "cleanup-tok");
+    const runner = await env.DB
+      .prepare("SELECT id FROM runners WHERE device_id = ?")
+      .bind("device-cleanup")
+      .first<{ id: number }>();
+    return runner!.id;
+  }
+
+  it("deletes terminal commands older than 24h", async () => {
+    const rid = await getRunnerId();
+    await insertCommand(rid, "completed", "-25 hours");
+    await insertCommand(rid, "failed", "-25 hours");
+
+    const result = await cleanupStaleCommands(env);
+
+    expect(result.deletedCommands).toBe(2);
+    const remaining = await env.DB.prepare("SELECT count(*) as c FROM runner_commands").first<{ c: number }>();
+    expect(remaining!.c).toBe(0);
+  });
+
+  it("preserves terminal commands within 24h", async () => {
+    const rid = await getRunnerId();
+    await insertCommand(rid, "completed", "-1 hour");
+
+    const result = await cleanupStaleCommands(env);
+
+    expect(result.deletedCommands).toBe(0);
+    const remaining = await env.DB.prepare("SELECT count(*) as c FROM runner_commands").first<{ c: number }>();
+    expect(remaining!.c).toBe(1);
+  });
+
+  it("deletes stale pending/running commands older than 7 days", async () => {
+    const rid = await getRunnerId();
+    await insertCommand(rid, "pending", "-8 days");
+    await insertCommand(rid, "running", "-8 days");
+
+    const result = await cleanupStaleCommands(env);
+
+    expect(result.deletedCommands).toBe(2);
+    const remaining = await env.DB.prepare("SELECT count(*) as c FROM runner_commands").first<{ c: number }>();
+    expect(remaining!.c).toBe(0);
+  });
+
+  it("preserves pending/running commands within 7 days", async () => {
+    const rid = await getRunnerId();
+    await insertCommand(rid, "pending", "-1 day");
+    await insertCommand(rid, "running", "-1 day");
+
+    const result = await cleanupStaleCommands(env);
+
+    expect(result.deletedCommands).toBe(0);
+    const remaining = await env.DB.prepare("SELECT count(*) as c FROM runner_commands").first<{ c: number }>();
+    expect(remaining!.c).toBe(2);
+  });
+
+  it("expires active jobs stuck for 7+ days and cleans pending commands", async () => {
+    const rid = await getRunnerId();
+    const jobId = await insertJob(rid, 500, "active", "-8 days");
+    // Associated pending command
+    await env.DB.prepare(
+      `INSERT INTO runner_commands (runner_id, user_id, command_type, payload, status, created_at, updated_at)
+       VALUES (?, 'u1', 'retry-flaky', '{"repoFullName":"owner/repo","prNumber":500}', 'pending', datetime('now'), datetime('now'))`,
+    ).bind(rid).run();
+
+    const result = await cleanupStaleCommands(env);
+
+    expect(result.expiredJobs).toBe(1);
+    // Job should now be exhausted
+    const job = await env.DB.prepare("SELECT status FROM flaky_retry_jobs WHERE id = ?").bind(jobId).first<{ status: string }>();
+    expect(job!.status).toBe("exhausted");
+    // Pending command should be deleted
+    const cmds = await env.DB.prepare("SELECT count(*) as c FROM runner_commands WHERE status = 'pending'").first<{ c: number }>();
+    expect(cmds!.c).toBe(0);
+  });
+
+  it("deletes terminal jobs older than 24h", async () => {
+    const rid = await getRunnerId();
+    await insertJob(rid, 600, "exhausted", "-25 hours");
+    await insertJob(rid, 601, "cancelled", "-25 hours");
+    await insertJob(rid, 602, "completed", "-25 hours");
+
+    const result = await cleanupStaleCommands(env);
+
+    expect(result.deletedJobs).toBe(3);
+    const remaining = await env.DB.prepare("SELECT count(*) as c FROM flaky_retry_jobs").first<{ c: number }>();
+    expect(remaining!.c).toBe(0);
+  });
+
+  it("preserves recent active jobs", async () => {
+    const rid = await getRunnerId();
+    await insertJob(rid, 700, "active", "-1 day");
+
+    const result = await cleanupStaleCommands(env);
+
+    expect(result.expiredJobs).toBe(0);
+    expect(result.deletedJobs).toBe(0);
+    const job = await env.DB.prepare("SELECT status FROM flaky_retry_jobs WHERE pr_number = 700").first<{ status: string }>();
+    expect(job!.status).toBe("active");
   });
 });

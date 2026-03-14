@@ -21,6 +21,7 @@ import {
   handleSubmitRetryFlaky,
   handleListRetryFlakyJobs,
   handleCancelRetryFlaky,
+  cleanupStaleCommands,
 } from "./runner";
 
 export type { PushDataPayload, FcmSendResult };
@@ -793,7 +794,7 @@ export default {
 
     return jsonResponse({ error: "not found" }, 404);
   },
-  async scheduled(_event, _env, _ctx) {
-    // Polling moved to runner client
+  async scheduled(_event, env, _ctx) {
+    await cleanupStaleCommands(env);
   },
 } satisfies ExportedHandler<Env>;

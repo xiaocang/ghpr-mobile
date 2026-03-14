@@ -761,3 +761,55 @@ export async function handleCancelRetryFlaky(
 
   return jsonResponse({ ok: true });
 }
+
+export async function cleanupStaleCommands(
+  env: Env
+): Promise<{ deletedCommands: number; deletedJobs: number; expiredJobs: number }> {
+  // 1) Delete terminal commands older than 24h
+  const cmdResult = await env.DB.prepare(
+    `DELETE FROM runner_commands
+     WHERE status IN ('completed', 'failed')
+       AND updated_at < datetime('now', '-24 hours')`
+  ).run();
+
+  // 2) Delete stale pending/running commands older than 7 days (runner likely offline)
+  const staleCmdResult = await env.DB.prepare(
+    `DELETE FROM runner_commands
+     WHERE status IN ('pending', 'running')
+       AND updated_at < datetime('now', '-7 days')`
+  ).run();
+
+  // 3) Expire active jobs stuck for 7+ days → mark exhausted + clean pending commands
+  const staleJobs = await env.DB.prepare(
+    `SELECT id, runner_id, repo_full_name, pr_number FROM flaky_retry_jobs
+     WHERE status = 'active'
+       AND updated_at < datetime('now', '-7 days')`
+  ).all<{ id: number; runner_id: number; repo_full_name: string; pr_number: number }>();
+
+  for (const job of staleJobs.results ?? []) {
+    await env.DB.batch([
+      env.DB.prepare(
+        `UPDATE flaky_retry_jobs SET status = 'exhausted', updated_at = datetime('now') WHERE id = ?`
+      ).bind(job.id),
+      env.DB.prepare(
+        `DELETE FROM runner_commands
+         WHERE runner_id = ? AND command_type = 'retry-flaky' AND status = 'pending'
+           AND json_extract(payload, '$.repoFullName') = ?
+           AND json_extract(payload, '$.prNumber') = ?`
+      ).bind(job.runner_id, job.repo_full_name, job.pr_number),
+    ]);
+  }
+
+  // 4) Delete terminal jobs older than 24h
+  const jobResult = await env.DB.prepare(
+    `DELETE FROM flaky_retry_jobs
+     WHERE status IN ('completed', 'exhausted', 'cancelled')
+       AND updated_at < datetime('now', '-24 hours')`
+  ).run();
+
+  return {
+    deletedCommands: cmdResult.meta.changes + staleCmdResult.meta.changes,
+    deletedJobs: jobResult.meta.changes,
+    expiredJobs: (staleJobs.results ?? []).length,
+  };
+}
