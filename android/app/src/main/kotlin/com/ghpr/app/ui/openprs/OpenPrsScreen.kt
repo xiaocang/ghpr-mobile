@@ -14,11 +14,15 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -26,9 +30,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.ghpr.app.data.OpenPullRequest
 import com.ghpr.app.data.SsoAuthorizationRequired
@@ -45,8 +51,16 @@ import com.ghpr.app.ui.theme.neoTopBarBorder
 @Composable
 fun OpenPrsScreen(viewModel: OpenPrsViewModel) {
     val state by viewModel.state.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(Unit) { viewModel.load() }
+
+    LaunchedEffect(state.retryFlakyMessage) {
+        state.retryFlakyMessage?.let { message ->
+            snackbarHostState.showSnackbar(message)
+            viewModel.clearRetryFlakyMessage()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -55,6 +69,7 @@ fun OpenPrsScreen(viewModel: OpenPrsViewModel) {
                 modifier = Modifier.neoTopBarBorder(),
             )
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         PullToRefreshBox(
             isRefreshing = state.isRefreshing,
@@ -105,11 +120,15 @@ fun OpenPrsScreen(viewModel: OpenPrsViewModel) {
                         }
                         if (state.authoredPrs.isNotEmpty()) {
                             item { SectionHeader("My PRs", state.authoredPrs.size) }
-                            items(state.authoredPrs) { pr -> OpenPrCard(pr, showReviewMetrics = true) }
+                            items(state.authoredPrs) { pr ->
+                                OpenPrCard(pr, showReviewMetrics = true, onRetryFlaky = { viewModel.retryFlaky(pr) })
+                            }
                         }
                         if (state.reviewRequestedPrs.isNotEmpty()) {
                             item { SectionHeader("Review Requested", state.reviewRequestedPrs.size) }
-                            items(state.reviewRequestedPrs) { pr -> OpenPrCard(pr, showReviewMetrics = false) }
+                            items(state.reviewRequestedPrs) { pr ->
+                                OpenPrCard(pr, showReviewMetrics = false, onRetryFlaky = { viewModel.retryFlaky(pr) })
+                            }
                         }
                     }
                 }
@@ -201,6 +220,7 @@ private fun SsoBanner(ssoRequired: List<SsoAuthorizationRequired>) {
 private fun OpenPrCard(
     pr: OpenPullRequest,
     showReviewMetrics: Boolean,
+    onRetryFlaky: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val statusColors = LocalGhprStatusColors.current
@@ -246,6 +266,18 @@ private fun OpenPrCard(
                             else -> statusColors.pending
                         }
                         StatusBadge(text = ci.lowercase(), color = ciColor)
+                        if (ci.uppercase() in listOf("FAILURE", "ERROR")) {
+                            IconButton(
+                                onClick = onRetryFlaky,
+                                modifier = Modifier.padding(start = 2.dp).height(Dp(24f)),
+                            ) {
+                                androidx.compose.material3.Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = "Retry failed CI",
+                                    tint = statusColors.closed,
+                                )
+                            }
+                        }
                     }
                 }
             }

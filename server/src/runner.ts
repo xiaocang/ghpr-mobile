@@ -403,6 +403,7 @@ export async function handlePollCommands(
     `SELECT id, command_type, payload, created_at
      FROM runner_commands
      WHERE runner_id = ? AND status = 'pending'
+       AND (scheduled_after IS NULL OR scheduled_after <= datetime('now'))
      ORDER BY created_at ASC
      LIMIT 10`
   )
@@ -450,10 +451,10 @@ export async function handleCommandResult(
   }
 
   const command = await env.DB.prepare(
-    "SELECT id FROM runner_commands WHERE id = ? AND runner_id = ? LIMIT 1"
+    "SELECT id, command_type, payload FROM runner_commands WHERE id = ? AND runner_id = ? LIMIT 1"
   )
     .bind(commandId, runner.id)
-    .first<{ id: number }>();
+    .first<{ id: number; command_type: string; payload: string }>();
 
   if (!command) {
     return jsonResponse({ error: "command not found" }, 404);
@@ -469,7 +470,94 @@ export async function handleCommandResult(
     .bind(status, resultJson, commandId)
     .run();
 
+  // Post-processing for retry-flaky commands
+  if (command.command_type === "retry-flaky" && status === "completed" && body.result != null) {
+    await postProcessRetryFlaky(env, runner, command.payload, body.result);
+  }
+
   return jsonResponse({ ok: true });
+}
+
+async function postProcessRetryFlaky(
+  env: Env,
+  runner: RunnerRow,
+  commandPayloadStr: string,
+  result: unknown
+): Promise<void> {
+  const commandPayload = JSON.parse(commandPayloadStr) as {
+    repoFullName?: string;
+    prNumber?: number;
+    workflowAttempts?: Record<string, number>;
+  };
+  const repoFullName = commandPayload.repoFullName ?? "";
+  const prNumber = commandPayload.prNumber ?? 0;
+  if (!repoFullName || !prNumber) return;
+
+  const res = result as {
+    retriedCount?: number;
+    workflows?: { name: string; attempts: number }[];
+  };
+
+  const retriedCount = res.retriedCount ?? 0;
+
+  // Merge workflow attempts from result into stored map
+  const prevAttempts = commandPayload.workflowAttempts ?? {};
+  const updatedAttempts: Record<string, number> = { ...prevAttempts };
+  for (const wf of res.workflows ?? []) {
+    updatedAttempts[wf.name] = wf.attempts;
+  }
+
+  const job = await env.DB.prepare(
+    "SELECT id, retries_remaining FROM flaky_retry_jobs WHERE repo_full_name = ? AND pr_number = ? AND status = 'active' LIMIT 1"
+  )
+    .bind(repoFullName, prNumber)
+    .first<{ id: number; retries_remaining: number }>();
+
+  if (!job) return;
+
+  const newRemaining = job.retries_remaining - 1;
+
+  if (retriedCount === 0) {
+    // No failures found — mark completed
+    await env.DB.prepare(
+      `UPDATE flaky_retry_jobs
+       SET workflow_attempts = ?, retries_remaining = ?, status = 'completed', updated_at = datetime('now')
+       WHERE id = ?`
+    )
+      .bind(JSON.stringify(updatedAttempts), newRemaining, job.id)
+      .run();
+  } else if (newRemaining <= 0) {
+    // Budget exhausted
+    await env.DB.prepare(
+      `UPDATE flaky_retry_jobs
+       SET workflow_attempts = ?, retries_remaining = 0, status = 'exhausted', updated_at = datetime('now')
+       WHERE id = ?`
+    )
+      .bind(JSON.stringify(updatedAttempts), job.id)
+      .run();
+  } else {
+    // Schedule next round with 5 min delay
+    await env.DB.prepare(
+      `UPDATE flaky_retry_jobs
+       SET workflow_attempts = ?, retries_remaining = ?, updated_at = datetime('now')
+       WHERE id = ?`
+    )
+      .bind(JSON.stringify(updatedAttempts), newRemaining, job.id)
+      .run();
+
+    const payload = JSON.stringify({
+      repoFullName,
+      prNumber,
+      workflowAttempts: updatedAttempts,
+    });
+
+    await env.DB.prepare(
+      `INSERT INTO runner_commands (runner_id, user_id, command_type, payload, status, scheduled_after, created_at, updated_at)
+       VALUES (?, ?, 'retry-flaky', ?, 'pending', datetime('now', '+5 minutes'), datetime('now'), datetime('now'))`
+    )
+      .bind(runner.id, runner.user_id, payload)
+      .run();
+  }
 }
 
 export async function handleSubmitCommand(
@@ -510,4 +598,81 @@ export async function handleSubmitCommand(
     .run();
 
   return jsonResponse({ ok: true, commandId: result.meta.last_row_id });
+}
+
+export async function handleSubmitRetryFlaky(
+  request: Request,
+  env: Env,
+  userId: string
+): Promise<Response> {
+  const body = await parseJsonBody<SubmitCommandBody>(request);
+  if (!body) {
+    return jsonResponse({ error: "invalid json" }, 400);
+  }
+
+  const repoFullName = body.repoFullName?.trim().toLowerCase() ?? "";
+  const prNumber = body.prNumber;
+  if (!repoFullName) {
+    return jsonResponse({ error: "repoFullName is required" }, 400);
+  }
+  if (!prNumber || prNumber <= 0) {
+    return jsonResponse({ error: "prNumber is required" }, 400);
+  }
+
+  const runner = await env.DB.prepare(
+    "SELECT id FROM runners WHERE user_id = ? LIMIT 1"
+  )
+    .bind(userId)
+    .first<{ id: number }>();
+
+  if (!runner) {
+    return jsonResponse({ error: "no runner registered for this user" }, 400);
+  }
+
+  // Upsert flaky_retry_jobs — reset budget to 3 on resubmit
+  await env.DB.prepare(
+    `INSERT INTO flaky_retry_jobs (repo_full_name, pr_number, user_id, runner_id, retries_remaining, workflow_attempts, status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, 3, '{}', 'active', datetime('now'), datetime('now'))
+     ON CONFLICT(repo_full_name, pr_number) DO UPDATE SET
+       retries_remaining = 3,
+       status = 'active',
+       user_id = excluded.user_id,
+       runner_id = excluded.runner_id,
+       updated_at = datetime('now')`
+  )
+    .bind(repoFullName, prNumber, userId, runner.id)
+    .run();
+
+  const job = await env.DB.prepare(
+    "SELECT id, workflow_attempts FROM flaky_retry_jobs WHERE repo_full_name = ? AND pr_number = ? LIMIT 1"
+  )
+    .bind(repoFullName, prNumber)
+    .first<{ id: number; workflow_attempts: string }>();
+
+  // Check for existing pending/running retry-flaky command for this runner+PR
+  const existing = await env.DB.prepare(
+    `SELECT id FROM runner_commands
+     WHERE runner_id = ? AND command_type = 'retry-flaky' AND status IN ('pending', 'running')
+       AND json_extract(payload, '$.repoFullName') = ?
+       AND json_extract(payload, '$.prNumber') = ?
+     LIMIT 1`
+  )
+    .bind(runner.id, repoFullName, prNumber)
+    .first<{ id: number }>();
+
+  if (existing) {
+    return jsonResponse({ ok: true, commandId: existing.id, jobId: job?.id });
+  }
+
+  const workflowAttempts = job ? JSON.parse(job.workflow_attempts) : {};
+  const payload = JSON.stringify({ repoFullName, prNumber, workflowAttempts });
+
+  const result = await env.DB.prepare(
+    `INSERT INTO runner_commands (runner_id, user_id, command_type, payload, status, created_at, updated_at)
+     VALUES (?, ?, 'retry-flaky', ?, 'pending', datetime('now'), datetime('now'))`
+  )
+    .bind(runner.id, userId, payload)
+    .run();
+
+  return jsonResponse({ ok: true, commandId: result.meta.last_row_id, jobId: job?.id });
 }

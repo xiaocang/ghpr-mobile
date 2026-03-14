@@ -665,3 +665,315 @@ describe("POST /runners/commands/:id/result", () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe("POST /commands/retry-flaky", () => {
+  it("creates a flaky retry job and command", async () => {
+    await registerRunner("device-flaky", "flaky-tok");
+
+    const req = jsonRequest(
+      "POST",
+      "/commands/retry-flaky",
+      { userId: "u1", repoFullName: "owner/repo", prNumber: 10 },
+      apiHeaders()
+    );
+    const res = await SELF.fetch(req);
+    expect(res.status).toBe(200);
+
+    const body = await res.json<{ ok: boolean; commandId: number; jobId: number }>();
+    expect(body.ok).toBe(true);
+    expect(body.commandId).toBeGreaterThan(0);
+    expect(body.jobId).toBeGreaterThan(0);
+
+    // Check job created
+    const job = await env.DB
+      .prepare("SELECT * FROM flaky_retry_jobs WHERE repo_full_name = ? AND pr_number = ?")
+      .bind("owner/repo", 10)
+      .first<{ retries_remaining: number; status: string; workflow_attempts: string }>();
+    expect(job).not.toBeNull();
+    expect(job!.retries_remaining).toBe(3);
+    expect(job!.status).toBe("active");
+    expect(job!.workflow_attempts).toBe("{}");
+
+    // Check command created
+    const cmd = await env.DB
+      .prepare("SELECT * FROM runner_commands WHERE id = ?")
+      .bind(body.commandId)
+      .first<{ command_type: string; payload: string; status: string }>();
+    expect(cmd!.command_type).toBe("retry-flaky");
+    expect(cmd!.status).toBe("pending");
+    expect(JSON.parse(cmd!.payload)).toEqual({
+      repoFullName: "owner/repo",
+      prNumber: 10,
+      workflowAttempts: {},
+    });
+  });
+
+  it("rejects missing prNumber", async () => {
+    await registerRunner("device-flaky2", "flaky-tok2");
+
+    const req = jsonRequest(
+      "POST",
+      "/commands/retry-flaky",
+      { userId: "u1", repoFullName: "owner/repo" },
+      apiHeaders()
+    );
+    const res = await SELF.fetch(req);
+    expect(res.status).toBe(400);
+  });
+
+  it("resets budget to 3 on resubmit", async () => {
+    await registerRunner("device-flaky3", "flaky-tok3");
+
+    // First submit
+    const req1 = jsonRequest(
+      "POST",
+      "/commands/retry-flaky",
+      { userId: "u1", repoFullName: "owner/repo", prNumber: 20 },
+      apiHeaders()
+    );
+    await SELF.fetch(req1);
+
+    // Simulate decrementing retries_remaining
+    await env.DB.exec(
+      "UPDATE flaky_retry_jobs SET retries_remaining = 1 WHERE repo_full_name = 'owner/repo' AND pr_number = 20"
+    );
+
+    // Mark existing command as completed so dedup doesn't kick in
+    await env.DB.exec(
+      "UPDATE runner_commands SET status = 'completed' WHERE command_type = 'retry-flaky'"
+    );
+
+    // Resubmit
+    const req2 = jsonRequest(
+      "POST",
+      "/commands/retry-flaky",
+      { userId: "u1", repoFullName: "owner/repo", prNumber: 20 },
+      apiHeaders()
+    );
+    const res2 = await SELF.fetch(req2);
+    expect(res2.status).toBe(200);
+
+    const job = await env.DB
+      .prepare("SELECT retries_remaining, status FROM flaky_retry_jobs WHERE repo_full_name = ? AND pr_number = ?")
+      .bind("owner/repo", 20)
+      .first<{ retries_remaining: number; status: string }>();
+    expect(job!.retries_remaining).toBe(3);
+    expect(job!.status).toBe("active");
+  });
+
+  it("deduplicates when pending command already exists", async () => {
+    await registerRunner("device-flaky4", "flaky-tok4");
+
+    // First submit
+    const req1 = jsonRequest(
+      "POST",
+      "/commands/retry-flaky",
+      { userId: "u1", repoFullName: "owner/repo", prNumber: 30 },
+      apiHeaders()
+    );
+    const res1 = await SELF.fetch(req1);
+    const body1 = await res1.json<{ commandId: number }>();
+
+    // Second submit — should return same commandId
+    const req2 = jsonRequest(
+      "POST",
+      "/commands/retry-flaky",
+      { userId: "u1", repoFullName: "owner/repo", prNumber: 30 },
+      apiHeaders()
+    );
+    const res2 = await SELF.fetch(req2);
+    const body2 = await res2.json<{ commandId: number }>();
+
+    expect(body2.commandId).toBe(body1.commandId);
+
+    // Only one command should exist
+    const cmds = await env.DB
+      .prepare("SELECT id FROM runner_commands WHERE command_type = 'retry-flaky'")
+      .all<{ id: number }>();
+    expect(cmds.results).toHaveLength(1);
+  });
+});
+
+describe("retry-flaky post-processing", () => {
+  it("schedules next round when retriedCount > 0 and budget remaining", async () => {
+    const pairingToken = "flaky-pp-tok";
+    await registerRunner("device-flaky-pp", pairingToken);
+
+    // Submit retry-flaky
+    const submitReq = jsonRequest(
+      "POST",
+      "/commands/retry-flaky",
+      { userId: "u1", repoFullName: "owner/repo", prNumber: 50 },
+      apiHeaders()
+    );
+    const submitRes = await SELF.fetch(submitReq);
+    const { commandId } = await submitRes.json<{ commandId: number }>();
+
+    // Report result with retriedCount > 0
+    const resultReq = jsonRequest(
+      "POST",
+      `/runners/commands/${commandId}/result`,
+      {
+        status: "completed",
+        result: {
+          retriedCount: 2,
+          workflows: [
+            { name: "Build", attempts: 1 },
+            { name: "Test", attempts: 1 },
+          ],
+        },
+      },
+      runnerHeaders(pairingToken)
+    );
+    const resultRes = await SELF.fetch(resultReq);
+    expect(resultRes.status).toBe(200);
+
+    // Check job updated
+    const job = await env.DB
+      .prepare("SELECT retries_remaining, workflow_attempts, status FROM flaky_retry_jobs WHERE repo_full_name = ? AND pr_number = ?")
+      .bind("owner/repo", 50)
+      .first<{ retries_remaining: number; workflow_attempts: string; status: string }>();
+    expect(job!.retries_remaining).toBe(2);
+    expect(job!.status).toBe("active");
+    expect(JSON.parse(job!.workflow_attempts)).toEqual({ Build: 1, Test: 1 });
+
+    // Check new delayed command created
+    const nextCmd = await env.DB
+      .prepare("SELECT command_type, status, scheduled_after, payload FROM runner_commands WHERE status = 'pending' AND command_type = 'retry-flaky'")
+      .first<{ command_type: string; status: string; scheduled_after: string; payload: string }>();
+    expect(nextCmd).not.toBeNull();
+    expect(nextCmd!.scheduled_after).not.toBeNull();
+    const payload = JSON.parse(nextCmd!.payload);
+    expect(payload.workflowAttempts).toEqual({ Build: 1, Test: 1 });
+  });
+
+  it("marks job completed when retriedCount is 0", async () => {
+    const pairingToken = "flaky-done-tok";
+    await registerRunner("device-flaky-done", pairingToken);
+
+    // Submit retry-flaky
+    const submitReq = jsonRequest(
+      "POST",
+      "/commands/retry-flaky",
+      { userId: "u1", repoFullName: "owner/repo", prNumber: 60 },
+      apiHeaders()
+    );
+    const submitRes = await SELF.fetch(submitReq);
+    const { commandId } = await submitRes.json<{ commandId: number }>();
+
+    // Report result with retriedCount = 0 (no failures)
+    const resultReq = jsonRequest(
+      "POST",
+      `/runners/commands/${commandId}/result`,
+      {
+        status: "completed",
+        result: { retriedCount: 0, workflows: [] },
+      },
+      runnerHeaders(pairingToken)
+    );
+    await SELF.fetch(resultReq);
+
+    const job = await env.DB
+      .prepare("SELECT status FROM flaky_retry_jobs WHERE repo_full_name = ? AND pr_number = ?")
+      .bind("owner/repo", 60)
+      .first<{ status: string }>();
+    expect(job!.status).toBe("completed");
+  });
+
+  it("marks job exhausted when budget reaches 0", async () => {
+    const pairingToken = "flaky-exhaust-tok";
+    await registerRunner("device-flaky-exhaust", pairingToken);
+
+    // Submit retry-flaky
+    const submitReq = jsonRequest(
+      "POST",
+      "/commands/retry-flaky",
+      { userId: "u1", repoFullName: "owner/repo", prNumber: 70 },
+      apiHeaders()
+    );
+    const submitRes = await SELF.fetch(submitReq);
+    const { commandId } = await submitRes.json<{ commandId: number }>();
+
+    // Set retries_remaining to 1 so next completion exhausts it
+    await env.DB.exec(
+      "UPDATE flaky_retry_jobs SET retries_remaining = 1 WHERE repo_full_name = 'owner/repo' AND pr_number = 70"
+    );
+
+    // Report result with retriedCount > 0
+    const resultReq = jsonRequest(
+      "POST",
+      `/runners/commands/${commandId}/result`,
+      {
+        status: "completed",
+        result: { retriedCount: 1, workflows: [{ name: "Build", attempts: 3 }] },
+      },
+      runnerHeaders(pairingToken)
+    );
+    await SELF.fetch(resultReq);
+
+    const job = await env.DB
+      .prepare("SELECT status, retries_remaining FROM flaky_retry_jobs WHERE repo_full_name = ? AND pr_number = ?")
+      .bind("owner/repo", 70)
+      .first<{ status: string; retries_remaining: number }>();
+    expect(job!.status).toBe("exhausted");
+    expect(job!.retries_remaining).toBe(0);
+
+    // No new pending command should be created
+    const nextCmd = await env.DB
+      .prepare("SELECT id FROM runner_commands WHERE status = 'pending' AND command_type = 'retry-flaky'")
+      .first<{ id: number }>();
+    expect(nextCmd).toBeNull();
+  });
+});
+
+describe("handlePollCommands scheduled_after filtering", () => {
+  it("does not return commands scheduled in the future", async () => {
+    const pairingToken = "sched-tok";
+    await registerRunner("device-sched", pairingToken);
+
+    const runner = await env.DB
+      .prepare("SELECT id FROM runners WHERE device_id = ?")
+      .bind("device-sched")
+      .first<{ id: number }>();
+
+    // Insert a command scheduled far in the future
+    await env.DB.prepare(
+      `INSERT INTO runner_commands (runner_id, user_id, command_type, payload, status, scheduled_after, created_at, updated_at)
+       VALUES (?, 'u1', 'retry-flaky', '{}', 'pending', datetime('now', '+1 hour'), datetime('now'), datetime('now'))`
+    ).bind(runner!.id).run();
+
+    const req = jsonRequest(
+      "GET",
+      "/runners/commands/poll",
+      undefined,
+      runnerHeaders(pairingToken)
+    );
+    const res = await SELF.fetch(req);
+    const body = await res.json<{ commands: unknown[] }>();
+    expect(body.commands).toHaveLength(0);
+  });
+
+  it("returns commands with null scheduled_after", async () => {
+    const pairingToken = "sched-null-tok";
+    await registerRunner("device-sched-null", pairingToken);
+
+    // Submit a normal command (no scheduled_after)
+    const submitReq = jsonRequest(
+      "POST",
+      "/commands/retry-ci",
+      { userId: "u1", repoFullName: "owner/repo" },
+      apiHeaders()
+    );
+    await SELF.fetch(submitReq);
+
+    const req = jsonRequest(
+      "GET",
+      "/runners/commands/poll",
+      undefined,
+      runnerHeaders(pairingToken)
+    );
+    const res = await SELF.fetch(req);
+    const body = await res.json<{ commands: unknown[] }>();
+    expect(body.commands).toHaveLength(1);
+  });
+});

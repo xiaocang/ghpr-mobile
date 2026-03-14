@@ -23,6 +23,7 @@ data class UnregisterDeviceRequest(val token: String)
 data class DeviceInfo(val platform: String, val tokenPreview: String)
 data class DevicesResponse(val ok: Boolean, val devices: List<DeviceInfo>)
 
+data class RetryFlakyRequest(val repoFullName: String, val prNumber: Int)
 data class SubscriptionsResponse(val ok: Boolean, val subscriptions: List<String>)
 data class RunnerStatusResponse(
     val ok: Boolean,
@@ -77,6 +78,9 @@ interface GhprApi {
 
     @GET("runners/poll-info")
     suspend fun runnerStatus(): Response<RunnerStatusResponse>
+
+    @POST("commands/retry-flaky")
+    suspend fun retryFlaky(@Body body: RetryFlakyRequest): Response<ApiResult>
 }
 
 class GhprApiClient(

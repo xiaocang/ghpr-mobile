@@ -112,6 +112,7 @@ fun AppNavGraph(container: AppContainer) {
                         gitHubOAuthManager = container.gitHubOAuthManager,
                         gitHubGraphQLClient = container.gitHubGraphQLClient,
                         cacheStore = container.syncCacheStore,
+                        apiClient = container.apiClient,
                     )
                 }
                 OpenPrsScreen(

@@ -18,6 +18,7 @@ import {
   handlePollCommands,
   handleCommandResult,
   handleSubmitCommand,
+  handleSubmitRetryFlaky,
 } from "./runner";
 
 export type { PushDataPayload, FcmSendResult };
@@ -693,6 +694,7 @@ export default {
       "/runners/register": { POST: true },
       "/runners/poll-info": { GET: true },
       "/commands/retry-ci": { POST: true },
+      "/commands/retry-flaky": { POST: true },
     };
 
     const routeMethods = protectedRoutes[url.pathname];
@@ -730,6 +732,9 @@ export default {
       }
       if (url.pathname === "/commands/retry-ci" && request.method === "POST") {
         return handleSubmitCommand(request, env, userId);
+      }
+      if (url.pathname === "/commands/retry-flaky" && request.method === "POST") {
+        return handleSubmitRetryFlaky(request, env, userId);
       }
     }
 
