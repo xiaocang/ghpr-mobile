@@ -45,7 +45,6 @@ import com.ghpr.app.ui.settings.SettingsScreen
 import com.ghpr.app.ui.settings.SettingsViewModel
 import com.ghpr.app.ui.subscriptions.SubscriptionsScreen
 import com.ghpr.app.ui.subscriptions.SubscriptionsViewModel
-import com.ghpr.app.ui.theme.LocalNeoBrutalColors
 
 private sealed class Screen(val route: String, val label: String, val icon: ImageVector) {
     data object Subscriptions : Screen("subscriptions", "Subs", Icons.AutoMirrored.Filled.List)
@@ -143,17 +142,15 @@ fun AppNavGraph(container: AppContainer) {
 
 @Composable
 private fun NeoBottomBar(content: @Composable RowScope.() -> Unit) {
-    val neo = LocalNeoBrutalColors.current
-    val borderColor = neo.border
-    val borderWidthPx = 2.5.dp
+    val dividerColor = MaterialTheme.colorScheme.outline
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .drawBehind {
-                val strokePx = borderWidthPx.toPx()
+                val strokePx = 0.5.dp.toPx()
                 drawLine(
-                    color = borderColor,
+                    color = dividerColor,
                     start = Offset(0f, strokePx / 2),
                     end = Offset(size.width, strokePx / 2),
                     strokeWidth = strokePx,
@@ -174,7 +171,6 @@ private fun RowScope.NeoBottomBarItem(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    val neo = LocalNeoBrutalColors.current
     val bgColor = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
     else MaterialTheme.colorScheme.surface
     val contentColor = if (selected) MaterialTheme.colorScheme.primary

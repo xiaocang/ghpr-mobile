@@ -13,8 +13,15 @@ val ShureTechMonoNerd = FontFamily(
     Font(R.font.shure_tech_mono_nerd_regular, FontWeight.Bold),
 )
 
-// Default system font (Roboto) for UI chrome / natural language text
-val GhprDefaultFamily = FontFamily.Default
+val InterFamily = FontFamily(
+    Font(R.font.inter_regular, FontWeight.Normal),
+    Font(R.font.inter_medium, FontWeight.Medium),
+    Font(R.font.inter_semibold, FontWeight.SemiBold),
+    Font(R.font.inter_bold, FontWeight.Bold),
+)
+
+// Inter font for UI chrome / natural language text
+val GhprDefaultFamily = InterFamily
 
 val GhprTypography = Typography(
     titleLarge = TextStyle(
