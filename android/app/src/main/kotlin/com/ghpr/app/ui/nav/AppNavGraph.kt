@@ -1,6 +1,7 @@
 package com.ghpr.app.ui.nav
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -38,6 +39,7 @@ import com.ghpr.app.ui.settings.SettingsScreen
 import com.ghpr.app.ui.settings.SettingsViewModel
 import com.ghpr.app.ui.subscriptions.SubscriptionsScreen
 import com.ghpr.app.ui.subscriptions.SubscriptionsViewModel
+import com.ghpr.app.ui.theme.LocalNeoBrutalColors
 
 private sealed class Screen(val route: String, val label: String, val emoji: String) {
     data object OpenPrs : Screen("open_prs", "PRs", "\uD83D\uDD00")           // 🔀
@@ -135,15 +137,16 @@ fun AppNavGraph(container: AppContainer) {
 
 @Composable
 private fun NeoBottomBar(content: @Composable RowScope.() -> Unit) {
-    val dividerColor = MaterialTheme.colorScheme.outline
+    val neo = LocalNeoBrutalColors.current
+    val borderColor = neo.border
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .drawBehind {
-                val strokePx = 0.5.dp.toPx()
+                val strokePx = 2.5.dp.toPx()
                 drawLine(
-                    color = dividerColor,
+                    color = borderColor,
                     start = Offset(0f, strokePx / 2),
                     end = Offset(size.width, strokePx / 2),
                     strokeWidth = strokePx,
@@ -164,12 +167,11 @@ private fun RowScope.NeoBottomBarItem(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    val bgColor = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-    else MaterialTheme.colorScheme.surface
-    val contentColor = if (selected) MaterialTheme.colorScheme.primary
+    val neo = LocalNeoBrutalColors.current
+    val contentColor = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
     else MaterialTheme.colorScheme.onSurfaceVariant
 
-    val shape = RoundedCornerShape(12.dp)
+    val shape = RoundedCornerShape(6.dp)
 
     Column(
         modifier = Modifier
@@ -180,7 +182,12 @@ private fun RowScope.NeoBottomBarItem(
     ) {
         Box(
             modifier = Modifier
-                .background(bgColor, shape)
+                .then(
+                    if (selected) Modifier
+                        .background(MaterialTheme.colorScheme.primaryContainer, shape)
+                        .border(2.dp, neo.border, shape)
+                    else Modifier
+                )
                 .padding(horizontal = 16.dp, vertical = 4.dp),
             contentAlignment = Alignment.Center,
         ) {
