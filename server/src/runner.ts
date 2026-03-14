@@ -35,6 +35,13 @@ type CommandResultBody = {
   result?: unknown;
 };
 
+/**
+ * Allowed command types for the worker↔runner RPC protocol.
+ * Both sides must agree on this set — the runner rejects unknown types.
+ */
+const ALLOWED_COMMAND_TYPES = ["retry-ci", "retry-flaky"] as const;
+type CommandType = (typeof ALLOWED_COMMAND_TYPES)[number];
+
 type SubmitCommandBody = {
   repoFullName?: string;
   prNumber?: number;
@@ -675,4 +682,82 @@ export async function handleSubmitRetryFlaky(
     .run();
 
   return jsonResponse({ ok: true, commandId: result.meta.last_row_id, jobId: job?.id });
+}
+
+export async function handleListRetryFlakyJobs(
+  env: Env,
+  userId: string
+): Promise<Response> {
+  const result = await env.DB.prepare(
+    `SELECT id, repo_full_name, pr_number, retries_remaining, workflow_attempts, status, created_at, updated_at
+     FROM flaky_retry_jobs
+     WHERE user_id = ?
+     ORDER BY updated_at DESC
+     LIMIT 50`
+  )
+    .bind(userId)
+    .all<{
+      id: number;
+      repo_full_name: string;
+      pr_number: number;
+      retries_remaining: number;
+      workflow_attempts: string;
+      status: string;
+      created_at: string;
+      updated_at: string;
+    }>();
+
+  const jobs = (result.results ?? []).map((row) => ({
+    id: row.id,
+    repoFullName: row.repo_full_name,
+    prNumber: row.pr_number,
+    retriesRemaining: row.retries_remaining,
+    workflowAttempts: JSON.parse(row.workflow_attempts),
+    status: row.status,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }));
+
+  return jsonResponse({ ok: true, jobs });
+}
+
+export async function handleCancelRetryFlaky(
+  request: Request,
+  env: Env,
+  userId: string
+): Promise<Response> {
+  const body = await parseJsonBody<SubmitCommandBody>(request);
+  if (!body) {
+    return jsonResponse({ error: "invalid json" }, 400);
+  }
+
+  const repoFullName = body.repoFullName?.trim().toLowerCase() ?? "";
+  const prNumber = body.prNumber;
+  if (!repoFullName || !prNumber || prNumber <= 0) {
+    return jsonResponse({ error: "repoFullName and prNumber are required" }, 400);
+  }
+
+  const job = await env.DB.prepare(
+    "SELECT id, runner_id FROM flaky_retry_jobs WHERE repo_full_name = ? AND pr_number = ? AND user_id = ? AND status = 'active' LIMIT 1"
+  )
+    .bind(repoFullName, prNumber, userId)
+    .first<{ id: number; runner_id: number }>();
+
+  if (!job) {
+    return jsonResponse({ error: "no active retry job found" }, 404);
+  }
+
+  await env.DB.batch([
+    env.DB.prepare(
+      `UPDATE flaky_retry_jobs SET status = 'cancelled', updated_at = datetime('now') WHERE id = ?`
+    ).bind(job.id),
+    env.DB.prepare(
+      `DELETE FROM runner_commands
+       WHERE runner_id = ? AND command_type = 'retry-flaky' AND status = 'pending'
+         AND json_extract(payload, '$.repoFullName') = ?
+         AND json_extract(payload, '$.prNumber') = ?`
+    ).bind(job.runner_id, repoFullName, prNumber),
+  ]);
+
+  return jsonResponse({ ok: true });
 }

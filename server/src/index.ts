@@ -19,6 +19,8 @@ import {
   handleCommandResult,
   handleSubmitCommand,
   handleSubmitRetryFlaky,
+  handleListRetryFlakyJobs,
+  handleCancelRetryFlaky,
 } from "./runner";
 
 export type { PushDataPayload, FcmSendResult };
@@ -694,7 +696,7 @@ export default {
       "/runners/register": { POST: true },
       "/runners/poll-info": { GET: true },
       "/commands/retry-ci": { POST: true },
-      "/commands/retry-flaky": { POST: true },
+      "/commands/retry-flaky": { POST: true, GET: true, DELETE: true },
     };
 
     const routeMethods = protectedRoutes[url.pathname];
@@ -735,6 +737,12 @@ export default {
       }
       if (url.pathname === "/commands/retry-flaky" && request.method === "POST") {
         return handleSubmitRetryFlaky(request, env, userId);
+      }
+      if (url.pathname === "/commands/retry-flaky" && request.method === "GET") {
+        return handleListRetryFlakyJobs(env, userId);
+      }
+      if (url.pathname === "/commands/retry-flaky" && request.method === "DELETE") {
+        return handleCancelRetryFlaky(request, env, userId);
       }
     }
 

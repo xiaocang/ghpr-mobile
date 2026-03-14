@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS runner_commands (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   runner_id INTEGER NOT NULL REFERENCES runners(id),
   user_id TEXT NOT NULL,
-  command_type TEXT NOT NULL,
+  command_type TEXT NOT NULL CHECK(command_type IN ('retry-ci', 'retry-flaky')),
   payload TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending',
   result TEXT,

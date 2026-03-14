@@ -977,3 +977,125 @@ describe("handlePollCommands scheduled_after filtering", () => {
     expect(body.commands).toHaveLength(1);
   });
 });
+
+describe("GET /commands/retry-flaky (list jobs)", () => {
+  it("returns active retry jobs for the user", async () => {
+    await registerRunner("device-list-jobs", "list-jobs-tok");
+
+    // Create a job
+    const submitReq = jsonRequest(
+      "POST",
+      "/commands/retry-flaky",
+      { userId: "u1", repoFullName: "owner/repo", prNumber: 100 },
+      apiHeaders()
+    );
+    await SELF.fetch(submitReq);
+
+    const req = jsonRequest(
+      "GET",
+      "/commands/retry-flaky?userId=u1",
+      undefined,
+      apiHeaders()
+    );
+    const res = await SELF.fetch(req);
+    expect(res.status).toBe(200);
+
+    const body = await res.json<{
+      ok: boolean;
+      jobs: Array<{
+        id: number;
+        repoFullName: string;
+        prNumber: number;
+        retriesRemaining: number;
+        status: string;
+      }>;
+    }>();
+    expect(body.ok).toBe(true);
+    expect(body.jobs).toHaveLength(1);
+    expect(body.jobs[0].repoFullName).toBe("owner/repo");
+    expect(body.jobs[0].prNumber).toBe(100);
+    expect(body.jobs[0].retriesRemaining).toBe(3);
+    expect(body.jobs[0].status).toBe("active");
+  });
+
+  it("returns empty array when no jobs", async () => {
+    const req = jsonRequest(
+      "GET",
+      "/commands/retry-flaky?userId=u-no-jobs",
+      undefined,
+      apiHeaders()
+    );
+    const res = await SELF.fetch(req);
+    expect(res.status).toBe(200);
+
+    const body = await res.json<{ jobs: unknown[] }>();
+    expect(body.jobs).toHaveLength(0);
+  });
+
+  it("rejects without auth", async () => {
+    const req = jsonRequest("GET", "/commands/retry-flaky");
+    const res = await SELF.fetch(req);
+    expect(res.status).toBe(401);
+  });
+});
+
+describe("DELETE /commands/retry-flaky (cancel)", () => {
+  it("cancels an active retry job and deletes pending commands", async () => {
+    await registerRunner("device-cancel", "cancel-tok");
+
+    // Create a job
+    const submitReq = jsonRequest(
+      "POST",
+      "/commands/retry-flaky",
+      { userId: "u1", repoFullName: "owner/repo", prNumber: 200 },
+      apiHeaders()
+    );
+    await SELF.fetch(submitReq);
+
+    // Cancel it
+    const cancelReq = jsonRequest(
+      "DELETE",
+      "/commands/retry-flaky",
+      { userId: "u1", repoFullName: "owner/repo", prNumber: 200 },
+      apiHeaders()
+    );
+    const cancelRes = await SELF.fetch(cancelReq);
+    expect(cancelRes.status).toBe(200);
+
+    const body = await cancelRes.json<{ ok: boolean }>();
+    expect(body.ok).toBe(true);
+
+    // Job should be cancelled
+    const job = await env.DB
+      .prepare("SELECT status FROM flaky_retry_jobs WHERE repo_full_name = ? AND pr_number = ?")
+      .bind("owner/repo", 200)
+      .first<{ status: string }>();
+    expect(job!.status).toBe("cancelled");
+
+    // Pending commands should be deleted
+    const cmds = await env.DB
+      .prepare("SELECT id FROM runner_commands WHERE command_type = 'retry-flaky' AND status = 'pending'")
+      .all<{ id: number }>();
+    expect(cmds.results).toHaveLength(0);
+  });
+
+  it("returns 404 when no active job exists", async () => {
+    const req = jsonRequest(
+      "DELETE",
+      "/commands/retry-flaky",
+      { userId: "u1", repoFullName: "owner/repo", prNumber: 999 },
+      apiHeaders()
+    );
+    const res = await SELF.fetch(req);
+    expect(res.status).toBe(404);
+  });
+
+  it("rejects without auth", async () => {
+    const req = jsonRequest("DELETE", "/commands/retry-flaky", {
+      repoFullName: "owner/repo",
+      prNumber: 1,
+    });
+    const res = await SELF.fetch(req);
+    expect(res.status).toBe(401);
+  });
+});

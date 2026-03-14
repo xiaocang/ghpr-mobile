@@ -9,6 +9,7 @@ import com.ghpr.app.data.GhprApiClient
 import com.ghpr.app.data.GitHubGraphQLClient
 import com.ghpr.app.data.OpenPullRequest
 import com.ghpr.app.data.PrCategory
+import com.ghpr.app.data.RetryFlakyJob
 import com.ghpr.app.data.RetryFlakyRequest
 import com.ghpr.app.data.SsoAuthorizationRequired
 import com.ghpr.app.data.toApiErrorMessage
@@ -25,6 +26,10 @@ data class OpenPrsUiState(
     val error: String? = null,
     val isSignedIn: Boolean = false,
     val retryFlakyMessage: String? = null,
+    /** Active/recent retry-flaky jobs keyed by "owner/repo#number" */
+    val retryFlakyJobs: Map<String, RetryFlakyJob> = emptyMap(),
+    /** PR keys currently submitting a retry-flaky request */
+    val retryFlakySubmitting: Set<String> = emptySet(),
 )
 
 class OpenPrsViewModel(
@@ -80,6 +85,7 @@ class OpenPrsViewModel(
                     ssoRequired = result.ssoRequired,
                     isLoading = false,
                 )
+                loadRetryJobs()
             } catch (e: Exception) {
                 _state.value = _state.value.copy(
                     error = e.message ?: "Unknown error",
@@ -112,6 +118,7 @@ class OpenPrsViewModel(
                     ssoRequired = result.ssoRequired,
                     isRefreshing = false,
                 )
+                loadRetryJobs()
             } catch (e: Exception) {
                 _state.value = _state.value.copy(
                     error = e.message ?: "Unknown error",
@@ -122,7 +129,12 @@ class OpenPrsViewModel(
     }
 
     fun retryFlaky(pr: OpenPullRequest) {
+        val key = prKey(pr)
+        if (_state.value.retryFlakySubmitting.contains(key)) return
         viewModelScope.launch {
+            _state.value = _state.value.copy(
+                retryFlakySubmitting = _state.value.retryFlakySubmitting + key,
+            )
             try {
                 val repoFullName = "${pr.repoOwner}/${pr.repoName}"
                 val response = apiClient.api.retryFlaky(
@@ -132,6 +144,7 @@ class OpenPrsViewModel(
                     _state.value = _state.value.copy(
                         retryFlakyMessage = "Retry queued for ${pr.repoName}#${pr.number}",
                     )
+                    loadRetryJobs()
                 } else {
                     _state.value = _state.value.copy(
                         retryFlakyMessage = response.toApiErrorMessage("Retry failed"),
@@ -141,11 +154,60 @@ class OpenPrsViewModel(
                 _state.value = _state.value.copy(
                     retryFlakyMessage = "Retry failed: ${e.message}",
                 )
+            } finally {
+                _state.value = _state.value.copy(
+                    retryFlakySubmitting = _state.value.retryFlakySubmitting - key,
+                )
+            }
+        }
+    }
+
+    fun cancelRetryFlaky(pr: OpenPullRequest) {
+        viewModelScope.launch {
+            try {
+                val repoFullName = "${pr.repoOwner}/${pr.repoName}"
+                val response = apiClient.api.cancelRetryFlaky(
+                    RetryFlakyRequest(repoFullName = repoFullName, prNumber = pr.number),
+                )
+                if (response.isSuccessful) {
+                    _state.value = _state.value.copy(
+                        retryFlakyMessage = "Retry cancelled for ${pr.repoName}#${pr.number}",
+                    )
+                    loadRetryJobs()
+                } else {
+                    _state.value = _state.value.copy(
+                        retryFlakyMessage = response.toApiErrorMessage("Cancel failed"),
+                    )
+                }
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(
+                    retryFlakyMessage = "Cancel failed: ${e.message}",
+                )
+            }
+        }
+    }
+
+    fun loadRetryJobs() {
+        viewModelScope.launch {
+            try {
+                val response = apiClient.api.listRetryFlakyJobs()
+                if (response.isSuccessful) {
+                    val jobs = response.body()?.jobs.orEmpty()
+                    _state.value = _state.value.copy(
+                        retryFlakyJobs = jobs.associateBy { "${it.repoFullName}#${it.prNumber}" },
+                    )
+                }
+            } catch (_: Exception) {
+                // Silently ignore — retry job status is best-effort
             }
         }
     }
 
     fun clearRetryFlakyMessage() {
         _state.value = _state.value.copy(retryFlakyMessage = null)
+    }
+
+    companion object {
+        fun prKey(pr: OpenPullRequest): String = "${pr.repoOwner}/${pr.repoName}#${pr.number}"
     }
 }
