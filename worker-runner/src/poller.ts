@@ -5,17 +5,7 @@ import {
   reportPollStatus,
 } from "./api";
 import type { SyncNotification } from "./api";
-
-const GITHUB_API = "https://api.github.com";
-
-function githubHeaders(token: string): Record<string, string> {
-  return {
-    Authorization: `Bearer ${token}`,
-    Accept: "application/vnd.github+json",
-    "User-Agent": "ghpr-worker-runner/1.0",
-    "X-GitHub-Api-Version": "2022-11-28",
-  };
-}
+import { headers as githubHeaders, GITHUB_API } from "./github";
 
 type GitHubNotification = {
   reason: string;
@@ -71,32 +61,34 @@ export async function pollAndSync(env: Env): Promise<void> {
       subSet.has(n.repository.full_name.toLowerCase())
   );
 
-  // 4. Fetch PR details for each notification
-  const syncNotifs: SyncNotification[] = [];
+  // 4. Fetch PR details in parallel
+  const detailPromises = prNotifs
+    .filter((n) => n.subject.url)
+    .map(async (notif): Promise<SyncNotification | null> => {
+      const prRes = await fetch(notif.subject.url!, {
+        headers: githubHeaders(env.GITHUB_TOKEN),
+      });
+      if (!prRes.ok) return null;
 
-  for (const notif of prNotifs) {
-    if (!notif.subject.url) continue;
+      const pr = (await prRes.json()) as PullRequestDetail;
+      const reviewers = (pr.requested_reviewers ?? [])
+        .map((r) => r.login)
+        .filter(Boolean);
 
-    const prRes = await fetch(notif.subject.url, {
-      headers: githubHeaders(env.GITHUB_TOKEN),
+      return {
+        repo: notif.repository.full_name.toLowerCase(),
+        prNumber: pr.number,
+        action: notif.reason,
+        prTitle: notif.subject.title,
+        prUrl: pr.html_url,
+        author: pr.user?.login,
+        ...(reviewers.length > 0 ? { reviewers } : {}),
+      };
     });
-    if (!prRes.ok) continue;
 
-    const pr = (await prRes.json()) as PullRequestDetail;
-    const reviewers = (pr.requested_reviewers ?? [])
-      .map((r) => r.login)
-      .filter(Boolean);
-
-    syncNotifs.push({
-      repo: notif.repository.full_name.toLowerCase(),
-      prNumber: pr.number,
-      action: notif.reason,
-      prTitle: notif.subject.title,
-      prUrl: pr.html_url,
-      author: pr.user?.login,
-      ...(reviewers.length > 0 ? { reviewers } : {}),
-    });
-  }
+  const syncNotifs = (await Promise.all(detailPromises)).filter(
+    (n): n is SyncNotification => n !== null
+  );
 
   // 5. Sync to server (always send if we have a new lastModified to persist)
   if (syncNotifs.length > 0 || newLastModified) {

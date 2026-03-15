@@ -80,6 +80,7 @@ export type SyncNotification = {
   prUrl?: string;
   author?: string;
   reviewers?: string[];
+  mentionedUser?: string;
 };
 
 export async function syncToServer(

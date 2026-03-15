@@ -1,6 +1,6 @@
-const GITHUB_API = "https://api.github.com";
+export const GITHUB_API = "https://api.github.com";
 
-function headers(token: string): Record<string, string> {
+export function headers(token: string): Record<string, string> {
   return {
     Authorization: `Bearer ${token}`,
     Accept: "application/vnd.github+json",

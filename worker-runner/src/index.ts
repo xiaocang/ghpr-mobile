@@ -43,14 +43,14 @@ export default {
     env: Env,
     _ctx: ExecutionContext
   ): Promise<void> {
-    // 1. Poll GitHub notifications and sync to server
-    await pollAndSync(env).catch((e) => {
-      const error = e instanceof Error ? e.message : String(e);
-      reportPollStatus(env, "error", error).catch(() => {});
-    });
-
-    // 2. Poll and execute commands
-    const commands = await pollCommands(env);
+    // Run notification polling and command polling in parallel
+    const [, commands] = await Promise.all([
+      pollAndSync(env).catch((e) => {
+        const error = e instanceof Error ? e.message : String(e);
+        reportPollStatus(env, "error", error).catch(() => {});
+      }),
+      pollCommands(env),
+    ]);
 
     for (const cmd of commands) {
       try {
