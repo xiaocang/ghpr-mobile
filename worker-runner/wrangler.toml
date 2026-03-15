@@ -1,0 +1,13 @@
+name = "ghpr-worker-runner"
+main = "src/index.ts"
+compatibility_date = "2026-03-01"
+
+[triggers]
+crons = ["* * * * *"]
+
+[vars]
+WORKER_URL = "https://ghpr-server.<account>.workers.dev"
+
+# Secrets (set via `wrangler secret put`):
+# GITHUB_TOKEN - GitHub PAT with actions + repo scope
+# RUNNER_TOKEN - the pairing token from runner registration
