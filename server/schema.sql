@@ -56,7 +56,8 @@ CREATE TABLE IF NOT EXISTS runners (
   last_poll_error TEXT,
   last_poll_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  last_seen_at TEXT
+  last_seen_at TEXT,
+  notif_last_modified TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_runners_pairing_token_hash ON runners (pairing_token_hash);
 CREATE INDEX IF NOT EXISTS idx_runners_user_id ON runners (user_id);

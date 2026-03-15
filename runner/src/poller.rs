@@ -122,6 +122,15 @@ pub async fn poll_and_sync(
         .collect();
 
     if pr_notifications.is_empty() {
+        // Still sync to persist last_modified even with no PR notifications
+        if last_modified.is_some() {
+            let _ = worker
+                .sync_notifications(&SyncRequest {
+                    notifications: Vec::new(),
+                    notif_last_modified: last_modified.clone(),
+                })
+                .await;
+        }
         let _ = worker
             .report_poll_status(&PollStatusRequest {
                 status: "ok".to_string(),
@@ -182,6 +191,7 @@ pub async fn poll_and_sync(
         match worker
             .sync_notifications(&SyncRequest {
                 notifications: sync_notifs,
+                notif_last_modified: last_modified.clone(),
             })
             .await
         {

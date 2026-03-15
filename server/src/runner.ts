@@ -24,6 +24,7 @@ export type RunnerRow = {
   last_poll_at: string | null;
   created_at: string;
   last_seen_at: string | null;
+  notif_last_modified: string | null;
 };
 
 type RunnerAuthResult = {
@@ -60,6 +61,7 @@ type SyncNotification = {
 
 type SyncBody = {
   notifications?: SyncNotification[];
+  notifLastModified?: string;
 };
 
 type PollStatusBody = {
@@ -238,6 +240,15 @@ export async function handleRunnerSync(
     return jsonResponse({ error: "invalid json" }, 400);
   }
 
+  // Persist notifLastModified if provided (used for If-Modified-Since on next poll)
+  if (body.notifLastModified) {
+    await env.DB.prepare(
+      "UPDATE runners SET notif_last_modified = ? WHERE id = ?"
+    )
+      .bind(body.notifLastModified, runner.id)
+      .run();
+  }
+
   const notifications = body.notifications ?? [];
   if (notifications.length === 0) {
     return jsonResponse({ ok: true, syncedCount: 0, pushedCount: 0 });
@@ -398,6 +409,7 @@ export async function handleListRunnerSubscriptions(
   return jsonResponse({
     ok: true,
     subscriptions: (result.results ?? []).map((row) => row.repo_full_name),
+    notifLastModified: runner.notif_last_modified,
   });
 }
 

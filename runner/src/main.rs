@@ -105,16 +105,16 @@ async fn cmd_run() -> Result<(), String> {
     let pairing_token = device::pairing_token()?;
     let worker = WorkerApi::new(&cfg.worker_url, &pairing_token);
 
-    // Fetch subscriptions
+    // Fetch subscriptions (includes last stored notifLastModified)
     let subs = worker.list_subscriptions().await?;
     let subscriptions = subs.subscriptions;
+    let mut last_modified = subs.notif_last_modified;
     println!(
-        "Runner started. {} subscriptions, polling every {}s...",
+        "Runner started. {} subscriptions, polling every {}s...{}",
         subscriptions.len(),
-        cfg.poll_interval.as_secs()
+        cfg.poll_interval.as_secs(),
+        if last_modified.is_some() { " (resuming with stored Last-Modified)" } else { "" }
     );
-
-    let mut last_modified: Option<String> = None;
 
     loop {
         // 1. Poll GitHub notifications and sync to worker

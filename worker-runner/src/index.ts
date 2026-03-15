@@ -1,7 +1,8 @@
-import { pollCommands, reportResult } from "./api";
+import { pollCommands, reportResult, reportPollStatus } from "./api";
 import type { Command } from "./api";
 import { executeRetryCi } from "./commands/retry-ci";
 import { executeRetryFlaky } from "./commands/retry-flaky";
+import { pollAndSync } from "./poller";
 
 export interface Env {
   GITHUB_TOKEN: string;
@@ -42,6 +43,13 @@ export default {
     env: Env,
     _ctx: ExecutionContext
   ): Promise<void> {
+    // 1. Poll GitHub notifications and sync to server
+    await pollAndSync(env).catch((e) => {
+      const error = e instanceof Error ? e.message : String(e);
+      reportPollStatus(env, "error", error).catch(() => {});
+    });
+
+    // 2. Poll and execute commands
     const commands = await pollCommands(env);
 
     for (const cmd of commands) {

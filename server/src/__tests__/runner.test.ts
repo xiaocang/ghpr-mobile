@@ -459,6 +459,88 @@ describe("GET /runners/subscriptions", () => {
     const res = await SELF.fetch(req);
     expect(res.status).toBe(401);
   });
+
+  it("returns notifLastModified from runner record", async () => {
+    const pairingToken = "subs-nlm-tok";
+    await registerRunner("device-subs-nlm", pairingToken);
+
+    await env.DB.exec(
+      "UPDATE runners SET notif_last_modified = 'Thu, 01 Jan 2026 00:00:00 GMT' WHERE device_id = 'device-subs-nlm'"
+    );
+
+    const req = jsonRequest(
+      "GET",
+      "/runners/subscriptions",
+      undefined,
+      runnerHeaders(pairingToken)
+    );
+    const res = await SELF.fetch(req);
+    const body = await res.json<{ ok: boolean; notifLastModified: string | null }>();
+    expect(body.ok).toBe(true);
+    expect(body.notifLastModified).toBe("Thu, 01 Jan 2026 00:00:00 GMT");
+  });
+
+  it("returns null notifLastModified when not set", async () => {
+    const pairingToken = "subs-nlm-null-tok";
+    await registerRunner("device-subs-nlm-null", pairingToken);
+
+    const req = jsonRequest(
+      "GET",
+      "/runners/subscriptions",
+      undefined,
+      runnerHeaders(pairingToken)
+    );
+    const res = await SELF.fetch(req);
+    const body = await res.json<{ notifLastModified: string | null }>();
+    expect(body.notifLastModified).toBeNull();
+  });
+});
+
+describe("POST /runners/sync notifLastModified", () => {
+  it("saves notifLastModified to runner record", async () => {
+    const pairingToken = "sync-nlm-tok";
+    await registerRunner("device-sync-nlm", pairingToken);
+
+    const req = jsonRequest(
+      "POST",
+      "/runners/sync",
+      {
+        notifications: [],
+        notifLastModified: "Fri, 02 Jan 2026 12:00:00 GMT",
+      },
+      runnerHeaders(pairingToken)
+    );
+    const res = await SELF.fetch(req);
+    expect(res.status).toBe(200);
+
+    const runner = await env.DB
+      .prepare("SELECT notif_last_modified FROM runners WHERE device_id = ?")
+      .bind("device-sync-nlm")
+      .first<{ notif_last_modified: string | null }>();
+    expect(runner!.notif_last_modified).toBe("Fri, 02 Jan 2026 12:00:00 GMT");
+  });
+
+  it("does not overwrite notifLastModified when not provided", async () => {
+    const pairingToken = "sync-nlm-keep-tok";
+    await registerRunner("device-sync-nlm-keep", pairingToken);
+    await env.DB.exec(
+      "UPDATE runners SET notif_last_modified = 'old-value' WHERE device_id = 'device-sync-nlm-keep'"
+    );
+
+    const req = jsonRequest(
+      "POST",
+      "/runners/sync",
+      { notifications: [] },
+      runnerHeaders(pairingToken)
+    );
+    await SELF.fetch(req);
+
+    const runner = await env.DB
+      .prepare("SELECT notif_last_modified FROM runners WHERE device_id = ?")
+      .bind("device-sync-nlm-keep")
+      .first<{ notif_last_modified: string | null }>();
+    expect(runner!.notif_last_modified).toBe("old-value");
+  });
 });
 
 describe("POST /commands/retry-ci", () => {

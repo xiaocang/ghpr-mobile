@@ -17,8 +17,31 @@ const testEnv = env as unknown as {
   WORKER_URL: string;
 };
 
+// Helper: mock the poller's server calls so scheduled handler can proceed to command polling
+function mockPollerCalls() {
+  // subscriptions
+  fetchMock
+    .get("https://ghpr-server.test.workers.dev")
+    .intercept({ path: "/runners/subscriptions", method: "GET" })
+    .reply(200, { ok: true, subscriptions: [], notifLastModified: null });
+
+  // GitHub notifications (empty)
+  fetchMock
+    .get("https://api.github.com")
+    .intercept({ path: "/notifications?participating=true&all=false", method: "GET" })
+    .reply(200, []);
+
+  // poll-status
+  fetchMock
+    .get("https://ghpr-server.test.workers.dev")
+    .intercept({ path: "/runners/poll-status", method: "POST" })
+    .reply(200, { ok: true });
+}
+
 describe("scheduled handler", () => {
   it("polls commands, executes retry-ci, and reports result", async () => {
+    mockPollerCalls();
+
     // Mock poll response
     fetchMock
       .get("https://ghpr-server.test.workers.dev")
@@ -56,6 +79,8 @@ describe("scheduled handler", () => {
   });
 
   it("reports failed for unknown command types", async () => {
+    mockPollerCalls();
+
     fetchMock
       .get("https://ghpr-server.test.workers.dev")
       .intercept({ path: "/runners/commands/poll", method: "GET" })
@@ -84,6 +109,8 @@ describe("scheduled handler", () => {
   });
 
   it("handles empty poll response", async () => {
+    mockPollerCalls();
+
     fetchMock
       .get("https://ghpr-server.test.workers.dev")
       .intercept({ path: "/runners/commands/poll", method: "GET" })

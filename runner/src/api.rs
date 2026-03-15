@@ -21,6 +21,8 @@ pub struct RegisterRequest {
 #[serde(rename_all = "camelCase")]
 pub struct SyncRequest {
     pub notifications: Vec<SyncNotification>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notif_last_modified: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -60,11 +62,13 @@ pub struct SyncResponse {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
 pub struct SubscriptionsResponse {
     pub ok: bool,
     #[serde(default)]
     pub subscriptions: Vec<String>,
+    pub notif_last_modified: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
