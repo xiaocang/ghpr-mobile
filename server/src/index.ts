@@ -62,10 +62,6 @@ type SubscriptionBody = {
   repoFullName?: string;
 };
 
-type DeviceTokenRow = {
-  token: string;
-};
-
 type SubscriptionRow = {
   repo_full_name: string;
 };
