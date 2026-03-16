@@ -1,6 +1,7 @@
 package com.ghpr.app.ui.nav
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -8,18 +9,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -27,8 +21,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
@@ -47,11 +41,11 @@ import com.ghpr.app.ui.subscriptions.SubscriptionsScreen
 import com.ghpr.app.ui.subscriptions.SubscriptionsViewModel
 import com.ghpr.app.ui.theme.LocalNeoBrutalColors
 
-private sealed class Screen(val route: String, val label: String, val icon: ImageVector) {
-    data object Subscriptions : Screen("subscriptions", "Subs", Icons.AutoMirrored.Filled.List)
-    data object History : Screen("history", "History", Icons.Default.Notifications)
-    data object OpenPrs : Screen("open_prs", "PRs", Icons.Default.Star)
-    data object Settings : Screen("settings", "Settings", Icons.Default.Settings)
+private sealed class Screen(val route: String, val label: String, val emoji: String) {
+    data object OpenPrs : Screen("open_prs", "PRs", "\uD83D\uDD00")           // 🔀
+    data object History : Screen("history", "History", "\uD83D\uDD14")         // 🔔
+    data object Subscriptions : Screen("subscriptions", "Subs", "\uD83D\uDCCB") // 📋
+    data object Settings : Screen("settings", "Settings", "⚙\uFE0F")          // ⚙️
 }
 
 private val screens = listOf(Screen.OpenPrs, Screen.History, Screen.Subscriptions, Screen.Settings)
@@ -68,7 +62,7 @@ fun AppNavGraph(container: AppContainer) {
                 screens.forEach { screen ->
                     val selected = currentDestination?.hierarchy?.any { it.route == screen.route } == true
                     NeoBottomBarItem(
-                        icon = screen.icon,
+                        emoji = screen.emoji,
                         label = screen.label,
                         selected = selected,
                         onClick = {
@@ -145,13 +139,12 @@ fun AppNavGraph(container: AppContainer) {
 private fun NeoBottomBar(content: @Composable RowScope.() -> Unit) {
     val neo = LocalNeoBrutalColors.current
     val borderColor = neo.border
-    val borderWidthPx = 2.5.dp
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .drawBehind {
-                val strokePx = borderWidthPx.toPx()
+                val strokePx = 2.5.dp.toPx()
                 drawLine(
                     color = borderColor,
                     start = Offset(0f, strokePx / 2),
@@ -169,15 +162,13 @@ private fun NeoBottomBar(content: @Composable RowScope.() -> Unit) {
 
 @Composable
 private fun RowScope.NeoBottomBarItem(
-    icon: ImageVector,
+    emoji: String,
     label: String,
     selected: Boolean,
     onClick: () -> Unit,
 ) {
     val neo = LocalNeoBrutalColors.current
-    val bgColor = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-    else MaterialTheme.colorScheme.surface
-    val contentColor = if (selected) MaterialTheme.colorScheme.primary
+    val contentColor = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
     else MaterialTheme.colorScheme.onSurfaceVariant
 
     val shape = RoundedCornerShape(6.dp)
@@ -191,14 +182,18 @@ private fun RowScope.NeoBottomBarItem(
     ) {
         Box(
             modifier = Modifier
-                .background(bgColor, shape)
+                .then(
+                    if (selected) Modifier
+                        .background(MaterialTheme.colorScheme.primaryContainer, shape)
+                        .border(2.dp, neo.border, shape)
+                    else Modifier
+                )
                 .padding(horizontal = 16.dp, vertical = 4.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                tint = contentColor,
+            Text(
+                text = emoji,
+                fontSize = 20.sp,
             )
         }
         Text(

@@ -69,9 +69,9 @@ private val NeoBrutalColorsLight = NeoBrutalColors(
 )
 
 private val NeoBrutalColorsDark = NeoBrutalColors(
-    border = Color(0xFFF0EDE4),
-    shadow = Color(0xFF0D0D1A),
-    cardBg = Color(0xFF22223B),
+    border = Color(0xFF30363D),   // GitHub dark border
+    shadow = Color(0xFF010409),   // GitHub very dark
+    cardBg = Color(0xFF161B22),   // GitHub dark surface
 )
 
 @Composable

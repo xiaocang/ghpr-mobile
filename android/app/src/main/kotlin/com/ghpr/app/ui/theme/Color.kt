@@ -5,8 +5,8 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 
 // ── Neobrutalist Light Palette ──────────────────────────────────────
-val neo_light_background = Color(0xFFFFFEF0)       // Warm cream
-val neo_light_surface = Color(0xFFFFFEF0)
+val neo_light_background = Color(0xFFFFFFFF)       // Pure white (GitHub)
+val neo_light_surface = Color(0xFFFFFFFF)
 val neo_light_surfaceContainerLow = Color(0xFFFFFFFF) // White cards
 val neo_light_primary = Color(0xFFFF6B35)           // Vivid orange
 val neo_light_onPrimary = Color(0xFF000000)
@@ -26,14 +26,14 @@ val neo_light_errorContainer = Color(0xFFFFDAD6)
 val neo_light_onErrorContainer = Color(0xFF410002)
 val neo_light_onBackground = Color(0xFF000000)
 val neo_light_onSurface = Color(0xFF000000)
-val neo_light_surfaceVariant = Color(0xFFF0EDE4)
+val neo_light_surfaceVariant = Color(0xFFF6F8FA)    // GitHub light gray
 val neo_light_onSurfaceVariant = Color(0xFF333333)
 val neo_light_outline = Color(0xFF000000)           // Thick black borders
 
 // ── Neobrutalist Dark Palette ───────────────────────────────────────
-val neo_dark_background = Color(0xFF1A1A2E)         // Deep navy
-val neo_dark_surface = Color(0xFF1A1A2E)
-val neo_dark_surfaceContainerLow = Color(0xFF22223B)
+val neo_dark_background = Color(0xFF0D1117)         // GitHub dark
+val neo_dark_surface = Color(0xFF0D1117)
+val neo_dark_surfaceContainerLow = Color(0xFF161B22) // GitHub dark surface
 val neo_dark_primary = Color(0xFFFF8C5A)
 val neo_dark_onPrimary = Color(0xFF000000)
 val neo_dark_primaryContainer = Color(0xFFFFD166)
@@ -50,11 +50,11 @@ val neo_dark_error = Color(0xFFFF6B8A)
 val neo_dark_onError = Color(0xFF000000)
 val neo_dark_errorContainer = Color(0xFF93000A)
 val neo_dark_onErrorContainer = Color(0xFFFFDAD6)
-val neo_dark_onBackground = Color(0xFFF0EDE4)
-val neo_dark_onSurface = Color(0xFFF0EDE4)
-val neo_dark_surfaceVariant = Color(0xFF2A2A3E)
-val neo_dark_onSurfaceVariant = Color(0xFFBBB8B0)
-val neo_dark_outline = Color(0xFFF0EDE4)
+val neo_dark_onBackground = Color(0xFFE6EDF3)       // GitHub dark text
+val neo_dark_onSurface = Color(0xFFE6EDF3)
+val neo_dark_surfaceVariant = Color(0xFF21262D)      // GitHub dark border area
+val neo_dark_onSurfaceVariant = Color(0xFF8B949E)    // GitHub muted text
+val neo_dark_outline = Color(0xFF30363D)             // GitHub dark border
 
 // ── NeoBrutal design-system colors ──────────────────────────────────
 @Immutable
