@@ -111,14 +111,14 @@ pub async fn poll_and_sync(
     };
 
     // Filter to PullRequest notifications for subscribed repos
-    let sub_set: std::collections::HashSet<&str> =
-        subscriptions.iter().map(|s| s.as_str()).collect();
+    let sub_set: std::collections::HashSet<String> =
+        subscriptions.iter().map(|s| s.to_lowercase()).collect();
 
     let pr_notifications: Vec<&Notification> = notifications
         .iter()
         .filter(|n| {
             n.subject.subject_type == "PullRequest"
-                && sub_set.contains(n.repository.full_name.to_lowercase().as_str())
+                && sub_set.contains(&n.repository.full_name.to_lowercase())
         })
         .collect();
 

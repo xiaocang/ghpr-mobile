@@ -15,6 +15,12 @@ fn read_or_create(filename: &str) -> Result<String, String> {
     } else {
         let value = uuid::Uuid::new_v4().to_string();
         fs::write(&path, &value).map_err(|e| format!("cannot write {filename}: {e}"))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o600))
+                .map_err(|e| format!("cannot set permissions on {filename}: {e}"))?;
+        }
         Ok(value)
     }
 }

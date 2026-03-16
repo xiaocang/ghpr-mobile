@@ -20,6 +20,20 @@ type GitHubNotification = {
   };
 };
 
+async function concurrentMap<T, R>(
+  items: T[],
+  fn: (item: T) => Promise<R>,
+  concurrency: number
+): Promise<R[]> {
+  const results: R[] = [];
+  for (let i = 0; i < items.length; i += concurrency) {
+    const batch = items.slice(i, i + concurrency);
+    const batchResults = await Promise.all(batch.map(fn));
+    results.push(...batchResults);
+  }
+  return results;
+}
+
 type PullRequestDetail = {
   number: number;
   html_url: string;
@@ -62,10 +76,11 @@ export async function pollAndSync(env: Env): Promise<void> {
       subSet.has(n.repository.full_name.toLowerCase())
   );
 
-  // 4. Fetch PR details in parallel
-  const detailPromises = prNotifs
-    .filter((n) => n.subject.url)
-    .map(async (notif): Promise<SyncNotification | null> => {
+  // 4. Fetch PR details with bounded concurrency
+  const notifsWithUrl = prNotifs.filter((n) => n.subject.url);
+  const detailResults = await concurrentMap(
+    notifsWithUrl,
+    async (notif): Promise<SyncNotification | null> => {
       const prRes = await fetch(notif.subject.url!, {
         headers: githubHeaders(env.GITHUB_TOKEN),
       });
@@ -86,9 +101,11 @@ export async function pollAndSync(env: Env): Promise<void> {
         ...(reviewers.length > 0 ? { reviewers } : {}),
         notificationId: notif.id,
       };
-    });
+    },
+    5
+  );
 
-  const syncNotifs = (await Promise.all(detailPromises)).filter(
+  const syncNotifs = detailResults.filter(
     (n): n is SyncNotification => n !== null
   );
 

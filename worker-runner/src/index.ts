@@ -49,7 +49,10 @@ export default {
         const error = e instanceof Error ? e.message : String(e);
         reportPollStatus(env, "error", error).catch(() => {});
       }),
-      pollCommands(env),
+      pollCommands(env).catch((e) => {
+        console.error("pollCommands failed:", e instanceof Error ? e.message : String(e));
+        return [] as Command[];
+      }),
     ]);
 
     for (const cmd of commands) {
