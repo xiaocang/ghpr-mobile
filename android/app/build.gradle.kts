@@ -50,6 +50,18 @@ android {
     namespace = "com.ghpr.app"
     compileSdk = 35
 
+    signingConfigs {
+        create("release") {
+            val ks = System.getenv("RELEASE_KEYSTORE_FILE")
+            if (ks != null) {
+                storeFile = file(ks)
+                storePassword = System.getenv("RELEASE_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("RELEASE_KEY_ALIAS")
+                keyPassword = System.getenv("RELEASE_KEY_PASSWORD")
+            }
+        }
+    }
+
     defaultConfig {
         applicationId = "com.ghpr.app"
         minSdk = 28
@@ -65,6 +77,12 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.getByName("release")
+        }
     }
 
     compileOptions {
