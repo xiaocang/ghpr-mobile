@@ -164,7 +164,7 @@ export async function handleRunnerPollInfo(
   userId: string
 ): Promise<Response> {
   const runner = await env.DB.prepare(
-    "SELECT * FROM runners WHERE user_id = ? LIMIT 1"
+    "SELECT * FROM runners WHERE user_id = ? ORDER BY last_seen_at DESC LIMIT 1"
   )
     .bind(userId)
     .first<RunnerRow>();
@@ -218,6 +218,7 @@ export async function handleRunnerUnregister(
 ): Promise<Response> {
   await env.DB.batch([
     env.DB.prepare("DELETE FROM runner_commands WHERE runner_id = ?").bind(runner.id),
+    env.DB.prepare("DELETE FROM flaky_retry_jobs WHERE runner_id = ?").bind(runner.id),
     env.DB.prepare("DELETE FROM runners WHERE id = ?").bind(runner.id),
   ]);
 
@@ -566,7 +567,7 @@ export async function handleSubmitCommand(
   }
 
   const runner = await env.DB.prepare(
-    "SELECT id FROM runners WHERE user_id = ? LIMIT 1"
+    "SELECT id FROM runners WHERE user_id = ? ORDER BY last_seen_at DESC LIMIT 1"
   )
     .bind(userId)
     .first<{ id: number }>();
@@ -610,7 +611,7 @@ export async function handleSubmitRetryFlaky(
   }
 
   const runner = await env.DB.prepare(
-    "SELECT id FROM runners WHERE user_id = ? LIMIT 1"
+    "SELECT id FROM runners WHERE user_id = ? ORDER BY last_seen_at DESC LIMIT 1"
   )
     .bind(userId)
     .first<{ id: number }>();

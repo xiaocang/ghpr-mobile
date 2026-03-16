@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS runners (
   notif_last_modified TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_runners_pairing_token_hash ON runners (pairing_token_hash);
-CREATE INDEX IF NOT EXISTS idx_runners_user_id ON runners (user_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_runners_user_id ON runners (user_id);
 
 CREATE TABLE IF NOT EXISTS runner_commands (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
