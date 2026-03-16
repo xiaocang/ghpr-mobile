@@ -6,6 +6,7 @@ use crate::api::{PollStatusRequest, SyncNotification, SyncRequest, WorkerApi};
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
 struct Notification {
+    id: String,
     reason: String,
     subject: Subject,
     repository: Repository,
@@ -183,6 +184,7 @@ pub async fn poll_and_sync(
                 Some(reviewers)
             },
             mentioned_user: None,
+            notification_id: Some(notif.id.clone()),
         });
     }
 

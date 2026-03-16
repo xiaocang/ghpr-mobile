@@ -51,6 +51,7 @@ type SyncNotification = {
   author?: string;
   reviewers?: string[];
   mentionedUser?: string;
+  notificationId?: string;
 };
 
 type SyncBody = {
@@ -263,7 +264,10 @@ export async function handleRunnerSync(
       continue;
     }
 
-    const deliveryId = `runner-${runner.id}-${repo}-${prNumber}-${now}`;
+    const notifId = notif.notificationId?.trim();
+    const deliveryId = notifId
+      ? `runner-${runner.id}-${notifId}`
+      : `runner-${runner.id}-${repo}-${prNumber}-${now}`;
 
     // Save PR change
     await env.DB.prepare(

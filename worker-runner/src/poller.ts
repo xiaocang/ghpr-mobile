@@ -8,6 +8,7 @@ import type { SyncNotification } from "./api";
 import { headers as githubHeaders, GITHUB_API } from "./github";
 
 type GitHubNotification = {
+  id: string;
   reason: string;
   subject: {
     title: string;
@@ -83,6 +84,7 @@ export async function pollAndSync(env: Env): Promise<void> {
         prUrl: pr.html_url,
         author: pr.user?.login,
         ...(reviewers.length > 0 ? { reviewers } : {}),
+        notificationId: notif.id,
       };
     });
 

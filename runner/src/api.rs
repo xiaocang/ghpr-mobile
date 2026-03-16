@@ -41,6 +41,8 @@ pub struct SyncNotification {
     pub reviewers: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mentioned_user: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notification_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]

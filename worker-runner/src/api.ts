@@ -81,6 +81,7 @@ export type SyncNotification = {
   author?: string;
   reviewers?: string[];
   mentionedUser?: string;
+  notificationId?: string;
 };
 
 export async function syncToServer(
