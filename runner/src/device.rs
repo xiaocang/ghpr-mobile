@@ -29,6 +29,8 @@ fn read_or_create(filename: &str) -> Result<String, String> {
         }
         #[cfg(not(unix))]
         {
+            // Note: on non-Unix platforms, file permissions default to world-readable.
+            // The pairing token is an auth secret — use Unix (macOS/Linux) for production.
             fs::write(&path, &value).map_err(|e| format!("cannot write {filename}: {e}"))?;
         }
         Ok(value)

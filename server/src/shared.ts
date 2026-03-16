@@ -12,7 +12,7 @@ export async function resolveDeviceTokensForPr(
        JOIN pr_user_involvement pui
          ON pui.repo_full_name = rs.repo_full_name
          AND pui.pr_number = ?
-         AND pui.github_login = r.github_login
+         AND LOWER(pui.github_login) = LOWER(r.github_login)
        WHERE rs.repo_full_name = ?`
     )
     .bind(prNumber, repoFullName)

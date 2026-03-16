@@ -265,7 +265,8 @@ export async function handleRunnerSync(
   let pushedCount = 0;
   const now = Date.now();
 
-  for (const notif of notifications) {
+  for (let i = 0; i < notifications.length; i++) {
+    const notif = notifications[i];
     const repo = notif.repo?.trim().toLowerCase() ?? "";
     const prNumber = notif.prNumber;
     const actionRaw = notif.action?.trim() ?? "";
@@ -278,7 +279,7 @@ export async function handleRunnerSync(
     const notifId = notif.notificationId?.trim();
     const deliveryId = notifId
       ? `runner-${runner.id}-${notifId}`
-      : `runner-${runner.id}-${repo}-${prNumber}-${now}`;
+      : `runner-${runner.id}-${repo}-${prNumber}-${now}-${i}`;
 
     // Save PR change
     await env.DB.prepare(
