@@ -1,5 +1,3 @@
-import { pollAllUsers } from "./github-poller";
-import { encryptToken } from "./crypto";
 import { normalizeAction } from "./normalize";
 import {
   sendFcmPush,
@@ -8,6 +6,24 @@ import {
   type PushDataPayload,
   type FcmSendResult,
 } from "./fcm";
+import { resolveDeviceTokensForPr } from "./shared";
+import {
+  requireRunnerAuth,
+  handleRunnerRegister,
+  handleRunnerStatus,
+  handleRunnerUnregister,
+  handleRunnerSync,
+  handleRunnerPollStatus,
+  handleRunnerPollInfo,
+  handleListRunnerSubscriptions,
+  handlePollCommands,
+  handleCommandResult,
+  handleSubmitCommand,
+  handleSubmitRetryFlaky,
+  handleListRetryFlakyJobs,
+  handleCancelRetryFlaky,
+  cleanupStaleCommands,
+} from "./runner";
 
 export type { PushDataPayload, FcmSendResult };
 export { sendFcmPush, resetAccessTokenCache, cachedAccessToken };
@@ -17,7 +33,6 @@ export interface Env {
   FCM_PROJECT_ID: string;
   FCM_CLIENT_EMAIL: string;
   FCM_PRIVATE_KEY: string;
-  GITHUB_TOKEN_ENCRYPTION_KEY: string;
   INTERNAL_API_KEY?: string;
   DB: D1Database;
 }
@@ -47,10 +62,6 @@ type SubscriptionBody = {
   repoFullName?: string;
 };
 
-type DeviceTokenRow = {
-  token: string;
-};
-
 type SubscriptionRow = {
   repo_full_name: string;
 };
@@ -71,14 +82,6 @@ type PRChangeRow = {
   pr_number: number;
   action: string;
   changed_at_ms: number;
-};
-
-type GitHubTokenStatusRow = {
-  github_login: string;
-  last_poll_status: string | null;
-  last_poll_error: string | null;
-  last_poll_at: string | null;
-  last_poll_success_at: string | null;
 };
 
 const encoder = new TextEncoder();
@@ -383,25 +386,6 @@ export function buildPushPayload(event: GitHubEvent, deliveryId: string): PushDa
   };
 }
 
-async function resolveDeviceTokensForPr(db: D1Database, repoFullName: string, prNumber: number): Promise<string[]> {
-  const result = await db
-    .prepare(
-      `SELECT DISTINCT dt.token AS token
-       FROM repo_subscriptions rs
-       JOIN device_tokens dt ON dt.user_id = rs.user_id
-       JOIN user_github_tokens ugt ON ugt.user_id = rs.user_id
-       JOIN pr_user_involvement pui
-         ON pui.repo_full_name = rs.repo_full_name
-         AND pui.pr_number = ?
-         AND LOWER(pui.github_login) = LOWER(ugt.github_login)
-       WHERE rs.repo_full_name = ?`
-    )
-    .bind(prNumber, repoFullName)
-    .all<DeviceTokenRow>();
-
-  return (result.results ?? []).map((row) => row.token);
-}
-
 async function fanOutPush(env: Env, payload: PushDataPayload): Promise<number> {
   const tokens = await resolveDeviceTokensForPr(env.DB, payload.repo, Number(payload.prNumber));
   for (const token of tokens) {
@@ -547,91 +531,6 @@ async function handleUnsubscribeRepo(request: Request, env: Env, userId: string)
   return jsonResponse({ ok: true });
 }
 
-type StoreGitHubTokenBody = {
-  githubToken?: string;
-  githubLogin?: string;
-};
-
-async function handleStoreGitHubToken(request: Request, env: Env, userId: string): Promise<Response> {
-  const body = await parseJsonBody<StoreGitHubTokenBody>(request);
-  if (!body) {
-    return jsonResponse({ error: "invalid json" }, 400);
-  }
-
-  const githubToken = body.githubToken?.trim() ?? "";
-  const githubLogin = body.githubLogin?.trim() ?? "";
-
-  if (!githubToken) {
-    return jsonResponse({ error: "githubToken is required" }, 400);
-  }
-  if (!githubLogin) {
-    return jsonResponse({ error: "githubLogin is required" }, 400);
-  }
-
-  const encrypted = await encryptToken(githubToken, env.GITHUB_TOKEN_ENCRYPTION_KEY);
-
-  await env.DB
-    .prepare(
-      `INSERT INTO user_github_tokens (
-         user_id,
-         encrypted_token,
-         github_login,
-         last_poll_status,
-         last_poll_error,
-         last_poll_success_at,
-         created_at,
-         updated_at
-       )
-       VALUES (?, ?, ?, NULL, NULL, NULL, datetime('now'), datetime('now'))
-       ON CONFLICT(user_id) DO UPDATE SET
-         encrypted_token = excluded.encrypted_token,
-         github_login = excluded.github_login,
-         last_poll_status = NULL,
-         last_poll_error = NULL,
-         last_poll_success_at = NULL,
-         updated_at = datetime('now')`
-    )
-    .bind(userId, encrypted, githubLogin)
-    .run();
-
-  return jsonResponse({ ok: true });
-}
-
-async function handleDeleteGitHubToken(env: Env, userId: string): Promise<Response> {
-  await env.DB
-    .prepare("DELETE FROM user_github_tokens WHERE user_id = ?")
-    .bind(userId)
-    .run();
-
-  return jsonResponse({ ok: true });
-}
-
-async function handleGitHubTokenStatus(env: Env, userId: string): Promise<Response> {
-  const row = await env.DB
-    .prepare(
-      `SELECT github_login, last_poll_status, last_poll_error, last_poll_at, last_poll_success_at
-       FROM user_github_tokens
-       WHERE user_id = ?
-       LIMIT 1`
-    )
-    .bind(userId)
-    .first<GitHubTokenStatusRow>();
-
-  if (!row) {
-    return jsonResponse({ ok: true, configured: false });
-  }
-
-  return jsonResponse({
-    ok: true,
-    configured: true,
-    githubLogin: row.github_login,
-    lastPollStatus: row.last_poll_status,
-    lastPollError: row.last_poll_error,
-    lastPollAt: row.last_poll_at,
-    lastPollSuccessAt: row.last_poll_success_at,
-  });
-}
-
 async function handleWebhook(request: Request, env: Env): Promise<Response> {
   const signatureHeader = request.headers.get("x-hub-signature-256");
   const deliveryId = request.headers.get("x-github-delivery");
@@ -697,13 +596,13 @@ async function handleMobileSync(url: URL, env: Env, userId: string): Promise<Res
          SELECT pc.delivery_id, pc.repo_full_name, pc.pr_number, pc.action, pc.changed_at_ms
          FROM pr_changes pc
          JOIN repo_subscriptions rs ON rs.repo_full_name = pc.repo_full_name
-         LEFT JOIN user_github_tokens ugt ON ugt.user_id = rs.user_id
+         LEFT JOIN runners r ON r.user_id = rs.user_id
          LEFT JOIN pr_user_involvement pui
            ON pui.repo_full_name = pc.repo_full_name
            AND pui.pr_number = pc.pr_number
-           AND LOWER(pui.github_login) = LOWER(ugt.github_login)
+           AND LOWER(pui.github_login) = LOWER(r.github_login)
          WHERE rs.user_id = ?
-           AND (ugt.user_id IS NULL OR pui.github_login IS NOT NULL)
+           AND (r.id IS NULL OR pui.github_login IS NOT NULL)
            AND (pc.changed_at_ms > ? OR (pc.changed_at_ms = ? AND pc.delivery_id > ?))
        ), ranked AS (
          SELECT
@@ -773,8 +672,10 @@ export default {
       "/devices": { GET: true },
       "/subscriptions": { POST: true, GET: true, DELETE: true },
       "/mobile/sync": { GET: true },
-      "/github-token": { POST: true, DELETE: true },
-      "/github-token/status": { GET: true },
+      "/runners/register": { POST: true },
+      "/runners/poll-info": { GET: true },
+      "/commands/retry-ci": { POST: true },
+      "/commands/retry-flaky": { POST: true, GET: true, DELETE: true },
     };
 
     const routeMethods = protectedRoutes[url.pathname];
@@ -804,20 +705,74 @@ export default {
       if (url.pathname === "/mobile/sync" && request.method === "GET") {
         return handleMobileSync(url, env, userId);
       }
-      if (url.pathname === "/github-token" && request.method === "POST") {
-        return handleStoreGitHubToken(request, env, userId);
+      if (url.pathname === "/runners/register" && request.method === "POST") {
+        return handleRunnerRegister(request, env, userId);
       }
-      if (url.pathname === "/github-token" && request.method === "DELETE") {
-        return handleDeleteGitHubToken(env, userId);
+      if (url.pathname === "/runners/poll-info" && request.method === "GET") {
+        return handleRunnerPollInfo(env, userId);
       }
-      if (url.pathname === "/github-token/status" && request.method === "GET") {
-        return handleGitHubTokenStatus(env, userId);
+      if (url.pathname === "/commands/retry-ci" && request.method === "POST") {
+        return handleSubmitCommand(request, env, userId);
+      }
+      if (url.pathname === "/commands/retry-flaky" && request.method === "POST") {
+        return handleSubmitRetryFlaky(request, env, userId);
+      }
+      if (url.pathname === "/commands/retry-flaky" && request.method === "GET") {
+        return handleListRetryFlakyJobs(env, userId);
+      }
+      if (url.pathname === "/commands/retry-flaky" && request.method === "DELETE") {
+        return handleCancelRetryFlaky(request, env, userId);
+      }
+    }
+
+    // Runner-authenticated routes (x-runner-token header)
+    const runnerRoutes: Record<string, Record<string, true>> = {
+      "/runners/status": { GET: true },
+      "/runners/register": { DELETE: true },
+      "/runners/commands/poll": { GET: true },
+      "/runners/sync": { POST: true },
+      "/runners/poll-status": { POST: true },
+      "/runners/subscriptions": { GET: true },
+    };
+
+    // Match /runners/commands/:id/result
+    const commandResultMatch = url.pathname.match(/^\/runners\/commands\/(\d+)\/result$/);
+    if (commandResultMatch && request.method === "POST") {
+      const runnerAuth = await requireRunnerAuth(request, env);
+      if (runnerAuth instanceof Response) return runnerAuth;
+      const commandId = parseInt(commandResultMatch[1], 10);
+      return handleCommandResult(request, env, runnerAuth.runner, commandId);
+    }
+
+    const runnerRouteMethods = runnerRoutes[url.pathname];
+    if (runnerRouteMethods && runnerRouteMethods[request.method]) {
+      const runnerAuth = await requireRunnerAuth(request, env);
+      if (runnerAuth instanceof Response) return runnerAuth;
+      const { runner } = runnerAuth;
+
+      if (url.pathname === "/runners/status" && request.method === "GET") {
+        return handleRunnerStatus(request, env, runner);
+      }
+      if (url.pathname === "/runners/register" && request.method === "DELETE") {
+        return handleRunnerUnregister(request, env, runner);
+      }
+      if (url.pathname === "/runners/commands/poll" && request.method === "GET") {
+        return handlePollCommands(request, env, runner);
+      }
+      if (url.pathname === "/runners/sync" && request.method === "POST") {
+        return handleRunnerSync(request, env, runner);
+      }
+      if (url.pathname === "/runners/poll-status" && request.method === "POST") {
+        return handleRunnerPollStatus(request, env, runner);
+      }
+      if (url.pathname === "/runners/subscriptions" && request.method === "GET") {
+        return handleListRunnerSubscriptions(request, env, runner);
       }
     }
 
     return jsonResponse({ error: "not found" }, 404);
   },
-  async scheduled(event, env, ctx) {
-    ctx.waitUntil(pollAllUsers(env));
+  async scheduled(_event, env, _ctx) {
+    await cleanupStaleCommands(env);
   },
 } satisfies ExportedHandler<Env>;

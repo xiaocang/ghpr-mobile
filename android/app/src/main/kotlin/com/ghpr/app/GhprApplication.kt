@@ -25,7 +25,7 @@ class GhprApplication : Application() {
             val mode = container.pollingModeStore.pollingMode.first()
             when (mode) {
                 PollingMode.CLIENT -> container.pollingScheduler.scheduleClientPolling()
-                PollingMode.SERVER -> container.pollingScheduler.scheduleGrantRefresh()
+                PollingMode.RUNNER -> { /* runner polls independently */ }
                 PollingMode.OFF -> { /* nothing */ }
             }
         }

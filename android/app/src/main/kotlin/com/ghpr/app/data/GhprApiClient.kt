@@ -20,20 +20,28 @@ data class RegisterDeviceRequest(val token: String, val platform: String = "andr
 data class SubscribeRepoRequest(val repoFullName: String)
 data class UnsubscribeRepoRequest(val repoFullName: String)
 data class UnregisterDeviceRequest(val token: String)
-data class StoreGitHubTokenRequest(val githubToken: String, val githubLogin: String)
-
 data class DeviceInfo(val platform: String, val tokenPreview: String)
 data class DevicesResponse(val ok: Boolean, val devices: List<DeviceInfo>)
 
+data class RetryFlakyRequest(val repoFullName: String, val prNumber: Int)
+data class RetryFlakyJob(
+    val id: Int,
+    val repoFullName: String,
+    val prNumber: Int,
+    val retriesRemaining: Int,
+    val status: String,
+    val updatedAt: String? = null,
+)
+data class RetryFlakyJobsResponse(val ok: Boolean, val jobs: List<RetryFlakyJob>)
 data class SubscriptionsResponse(val ok: Boolean, val subscriptions: List<String>)
-data class GitHubTokenStatusResponse(
+data class RunnerStatusResponse(
     val ok: Boolean,
-    val configured: Boolean,
+    val deviceId: String? = null,
     val githubLogin: String? = null,
     val lastPollStatus: String? = null,
     val lastPollError: String? = null,
     val lastPollAt: String? = null,
-    val lastPollSuccessAt: String? = null,
+    val lastSeenAt: String? = null,
 )
 
 data class ChangedPr(
@@ -77,14 +85,17 @@ interface GhprApi {
         @Query("limit") limit: Int = 100,
     ): Response<SyncResponse>
 
-    @POST("github-token")
-    suspend fun storeGitHubToken(@Body body: StoreGitHubTokenRequest): Response<ApiResult>
+    @GET("runners/poll-info")
+    suspend fun runnerStatus(): Response<RunnerStatusResponse>
 
-    @HTTP(method = "DELETE", path = "github-token", hasBody = false)
-    suspend fun deleteGitHubToken(): Response<ApiResult>
+    @POST("commands/retry-flaky")
+    suspend fun retryFlaky(@Body body: RetryFlakyRequest): Response<ApiResult>
 
-    @GET("github-token/status")
-    suspend fun githubTokenStatus(): Response<GitHubTokenStatusResponse>
+    @GET("commands/retry-flaky")
+    suspend fun listRetryFlakyJobs(): Response<RetryFlakyJobsResponse>
+
+    @HTTP(method = "DELETE", path = "commands/retry-flaky", hasBody = true)
+    suspend fun cancelRetryFlaky(@Body body: RetryFlakyRequest): Response<ApiResult>
 }
 
 class GhprApiClient(

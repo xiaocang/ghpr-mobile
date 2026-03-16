@@ -112,6 +112,7 @@ fun AppNavGraph(container: AppContainer) {
                         gitHubOAuthManager = container.gitHubOAuthManager,
                         gitHubGraphQLClient = container.gitHubGraphQLClient,
                         cacheStore = container.syncCacheStore,
+                        apiClient = container.apiClient,
                     )
                 }
                 OpenPrsScreen(
@@ -130,7 +131,6 @@ fun AppNavGraph(container: AppContainer) {
                         pollingModeStore = container.pollingModeStore,
                         pollingScheduler = container.pollingScheduler,
                         apiClient = container.apiClient,
-                        applicationContext = navController.context.applicationContext,
                     )
                 }
                 SettingsScreen(

@@ -12,7 +12,6 @@ class PollingScheduler(private val context: Context) {
 
     companion object {
         const val CLIENT_POLL_WORK = "client_notification_poll"
-        const val SERVER_GRANT_REFRESH = "server_grant_refresh"
     }
 
     fun scheduleClientPolling() {
@@ -33,25 +32,5 @@ class PollingScheduler(private val context: Context) {
 
     fun cancelClientPolling() {
         WorkManager.getInstance(context).cancelUniqueWork(CLIENT_POLL_WORK)
-    }
-
-    fun scheduleGrantRefresh() {
-        val constraints = Constraints.Builder()
-            .setRequiredNetworkType(NetworkType.CONNECTED)
-            .build()
-
-        val request = PeriodicWorkRequestBuilder<GitHubTokenSyncWorker>(
-            50, TimeUnit.MINUTES,
-        ).setConstraints(constraints).build()
-
-        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-            SERVER_GRANT_REFRESH,
-            ExistingPeriodicWorkPolicy.KEEP,
-            request,
-        )
-    }
-
-    fun cancelGrantRefresh() {
-        WorkManager.getInstance(context).cancelUniqueWork(SERVER_GRANT_REFRESH)
     }
 }

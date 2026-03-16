@@ -8,17 +8,25 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -26,11 +34,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.ghpr.app.data.OpenPullRequest
+import com.ghpr.app.data.RetryFlakyJob
 import com.ghpr.app.data.SsoAuthorizationRequired
 import com.ghpr.app.ui.components.EmptyStateView
 import com.ghpr.app.ui.components.ErrorStateView
@@ -45,8 +55,16 @@ import com.ghpr.app.ui.theme.neoTopBarBorder
 @Composable
 fun OpenPrsScreen(viewModel: OpenPrsViewModel) {
     val state by viewModel.state.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(Unit) { viewModel.load() }
+
+    LaunchedEffect(state.retryFlakyMessage) {
+        state.retryFlakyMessage?.let { message ->
+            snackbarHostState.showSnackbar(message)
+            viewModel.clearRetryFlakyMessage()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -55,6 +73,7 @@ fun OpenPrsScreen(viewModel: OpenPrsViewModel) {
                 modifier = Modifier.neoTopBarBorder(),
             )
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         PullToRefreshBox(
             isRefreshing = state.isRefreshing,
@@ -105,11 +124,25 @@ fun OpenPrsScreen(viewModel: OpenPrsViewModel) {
                         }
                         if (state.authoredPrs.isNotEmpty()) {
                             item { SectionHeader("My PRs", state.authoredPrs.size) }
-                            items(state.authoredPrs) { pr -> OpenPrCard(pr, showReviewMetrics = true) }
+                            items(state.authoredPrs) { pr ->
+                                val key = OpenPrsViewModel.prKey(pr)
+                                val job = state.retryFlakyJobs[key]
+                                val isSubmitting = state.retryFlakySubmitting.contains(key)
+                                OpenPrCard(
+                                    pr = pr,
+                                    showReviewMetrics = true,
+                                    onRetryFlaky = { viewModel.retryFlaky(pr) },
+                                    onCancelRetryFlaky = { viewModel.cancelRetryFlaky(pr) },
+                                    retryFlakyJob = job,
+                                    isRetrySubmitting = isSubmitting,
+                                )
+                            }
                         }
                         if (state.reviewRequestedPrs.isNotEmpty()) {
                             item { SectionHeader("Review Requested", state.reviewRequestedPrs.size) }
-                            items(state.reviewRequestedPrs) { pr -> OpenPrCard(pr, showReviewMetrics = false) }
+                            items(state.reviewRequestedPrs) { pr ->
+                                OpenPrCard(pr, showReviewMetrics = false)
+                            }
                         }
                     }
                 }
@@ -154,7 +187,7 @@ private fun SsoBanner(ssoRequired: List<SsoAuthorizationRequired>) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                androidx.compose.material3.Icon(
+                Icon(
                     imageVector = Icons.Default.Warning,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.error,
@@ -201,9 +234,14 @@ private fun SsoBanner(ssoRequired: List<SsoAuthorizationRequired>) {
 private fun OpenPrCard(
     pr: OpenPullRequest,
     showReviewMetrics: Boolean,
+    onRetryFlaky: (() -> Unit)? = null,
+    onCancelRetryFlaky: (() -> Unit)? = null,
+    retryFlakyJob: RetryFlakyJob? = null,
+    isRetrySubmitting: Boolean = false,
 ) {
     val context = LocalContext.current
     val statusColors = LocalGhprStatusColors.current
+    val hasActiveJob = retryFlakyJob != null && retryFlakyJob.status == "active"
 
     NeoCard(
         modifier = Modifier
@@ -232,7 +270,10 @@ private fun OpenPrCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f),
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     if (pr.isDraft) {
                         StatusBadge(
                             text = "Draft",
@@ -246,6 +287,47 @@ private fun OpenPrCard(
                             else -> statusColors.pending
                         }
                         StatusBadge(text = ci.lowercase(), color = ciColor)
+                        if (onRetryFlaky != null && ci.uppercase() in listOf("FAILURE", "ERROR")) {
+                            when {
+                                isRetrySubmitting -> {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier
+                                            .padding(start = 2.dp)
+                                            .height(20.dp)
+                                            .width(20.dp),
+                                        strokeWidth = 2.dp,
+                                    )
+                                }
+                                hasActiveJob -> {
+                                    StatusBadge(
+                                        text = "retrying (${retryFlakyJob!!.retriesRemaining} left)",
+                                        color = statusColors.pending,
+                                    )
+                                    IconButton(
+                                        onClick = { onCancelRetryFlaky?.invoke() },
+                                        modifier = Modifier.padding(start = 2.dp),
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Close,
+                                            contentDescription = "Cancel retry",
+                                            tint = statusColors.closed,
+                                        )
+                                    }
+                                }
+                                else -> {
+                                    IconButton(
+                                        onClick = onRetryFlaky,
+                                        modifier = Modifier.padding(start = 2.dp),
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Refresh,
+                                            contentDescription = "Retry failed CI",
+                                            tint = statusColors.closed,
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
