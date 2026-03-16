@@ -81,7 +81,12 @@ android {
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("release")
+            val ks = System.getenv("RELEASE_KEYSTORE_FILE")
+            signingConfig = if (ks != null) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 
