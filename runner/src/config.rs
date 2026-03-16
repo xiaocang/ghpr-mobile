@@ -15,6 +15,10 @@ impl Config {
         let worker_url = env::var("GHPR_WORKER_URL")
             .map_err(|_| "GHPR_WORKER_URL environment variable is required".to_string())?;
 
+        if !worker_url.starts_with("https://") {
+            eprintln!("WARNING: GHPR_WORKER_URL does not use HTTPS — pairing token will be sent in cleartext");
+        }
+
         let poll_interval_secs: u64 = env::var("GHPR_POLL_INTERVAL")
             .ok()
             .and_then(|v| v.parse().ok())

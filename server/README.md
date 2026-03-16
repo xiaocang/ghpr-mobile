@@ -58,6 +58,25 @@ Management endpoints require `x-api-key` when `INTERNAL_API_KEY` is set.
 - `GET /mobile/sync?userId=...&since=...&cursorDeliveryId=...&limit=...`
 - `GET /healthz`
 
+### Runner endpoints (api-key auth)
+
+- `POST /runners/register` — register a runner
+- `GET /runners/poll-info` — get runner status for current user
+- `POST /commands/retry-ci` — submit retry-ci command
+- `POST /commands/retry-flaky` — submit retry-flaky command
+- `GET /commands/retry-flaky` — list retry-flaky jobs
+- `DELETE /commands/retry-flaky` — cancel retry-flaky job
+
+### Runner endpoints (runner-token auth)
+
+- `GET /runners/status` — runner heartbeat/status
+- `DELETE /runners/register` — unregister runner
+- `GET /runners/commands/poll` — poll for pending commands
+- `POST /runners/commands/{id}/result` — submit command result
+- `POST /runners/sync` — sync runner state
+- `POST /runners/poll-status` — update poll status
+- `GET /runners/subscriptions` — list subscriptions for runner's user
+
 ## Notes
 
 Current implementation is a bootstrap scaffold to start development and integration tests.

@@ -55,6 +55,14 @@ pub async fn execute(payload: &Value, github_token: &str) -> (String, Option<Val
         }
     };
 
+    // Validate repo_full_name format (owner/repo)
+    if !super::is_valid_repo_name(&parsed.repo_full_name) {
+        return (
+            "failed".to_string(),
+            Some(serde_json::json!({ "error": "invalid repo_full_name format" })),
+        );
+    }
+
     let client = Client::new();
     let headers = github_headers(github_token);
 
@@ -154,7 +162,7 @@ pub async fn execute(payload: &Value, github_token: &str) -> (String, Option<Val
         }
 
         match req.send().await {
-            Ok(res) if res.status().is_success() || res.status().as_u16() == 201 => {
+            Ok(res) if res.status().is_success() => {
                 retried_count += 1;
                 workflows.push(serde_json::json!({
                     "name": name,

@@ -14,12 +14,22 @@ fn read_or_create(filename: &str) -> Result<String, String> {
         fs::read_to_string(&path).map_err(|e| format!("cannot read {filename}: {e}"))
     } else {
         let value = uuid::Uuid::new_v4().to_string();
-        fs::write(&path, &value).map_err(|e| format!("cannot write {filename}: {e}"))?;
         #[cfg(unix)]
         {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&path, fs::Permissions::from_mode(0o600))
-                .map_err(|e| format!("cannot set permissions on {filename}: {e}"))?;
+            use std::io::Write;
+            use std::os::unix::fs::OpenOptionsExt;
+            let mut file = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&path)
+                .map_err(|e| format!("cannot write {filename}: {e}"))?;
+            file.write_all(value.as_bytes())
+                .map_err(|e| format!("cannot write {filename}: {e}"))?;
+        }
+        #[cfg(not(unix))]
+        {
+            fs::write(&path, &value).map_err(|e| format!("cannot write {filename}: {e}"))?;
         }
         Ok(value)
     }

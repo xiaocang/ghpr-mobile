@@ -145,6 +145,17 @@ export async function handleRunnerRegister(
 
   const tokenHash = await hashPairingToken(pairingToken);
 
+  // Prevent runner hijacking: reject re-registration by a different user
+  const existing = await env.DB.prepare(
+    "SELECT user_id FROM runners WHERE device_id = ? LIMIT 1"
+  )
+    .bind(deviceId)
+    .first<{ user_id: string }>();
+
+  if (existing && existing.user_id !== userId) {
+    return jsonResponse({ error: "device already registered to another user" }, 403);
+  }
+
   await env.DB.prepare(
     `INSERT INTO runners (device_id, pairing_token_hash, label, user_id, github_login, created_at)
      VALUES (?, ?, ?, ?, ?, datetime('now'))
@@ -413,12 +424,19 @@ export async function handlePollCommands(
 
   return jsonResponse({
     ok: true,
-    commands: commands.map((c) => ({
-      id: c.id,
-      commandType: c.command_type,
-      payload: JSON.parse(c.payload),
-      createdAt: c.created_at,
-    })),
+    commands: commands.reduce<unknown[]>((acc, c) => {
+      try {
+        acc.push({
+          id: c.id,
+          commandType: c.command_type,
+          payload: JSON.parse(c.payload),
+          createdAt: c.created_at,
+        });
+      } catch {
+        console.warn(`Skipping command ${c.id}: malformed payload`);
+      }
+      return acc;
+    }, []),
   });
 }
 
@@ -625,6 +643,7 @@ export async function handleSubmitRetryFlaky(
      VALUES (?, ?, ?, ?, 3, '{}', 'active', datetime('now'), datetime('now'))
      ON CONFLICT(repo_full_name, pr_number) DO UPDATE SET
        retries_remaining = 3,
+       workflow_attempts = '{}',
        status = 'active',
        user_id = excluded.user_id,
        runner_id = excluded.runner_id,

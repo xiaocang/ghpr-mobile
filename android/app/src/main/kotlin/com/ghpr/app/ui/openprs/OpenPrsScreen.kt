@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -186,7 +187,7 @@ private fun SsoBanner(ssoRequired: List<SsoAuthorizationRequired>) {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                androidx.compose.material3.Icon(
+                Icon(
                     imageVector = Icons.Default.Warning,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.error,
@@ -304,9 +305,9 @@ private fun OpenPrCard(
                                     )
                                     IconButton(
                                         onClick = { onCancelRetryFlaky?.invoke() },
-                                        modifier = Modifier.padding(start = 2.dp).height(24.dp),
+                                        modifier = Modifier.padding(start = 2.dp),
                                     ) {
-                                        androidx.compose.material3.Icon(
+                                        Icon(
                                             imageVector = Icons.Default.Close,
                                             contentDescription = "Cancel retry",
                                             tint = statusColors.closed,
@@ -316,9 +317,9 @@ private fun OpenPrCard(
                                 else -> {
                                     IconButton(
                                         onClick = onRetryFlaky,
-                                        modifier = Modifier.padding(start = 2.dp).height(24.dp),
+                                        modifier = Modifier.padding(start = 2.dp),
                                     ) {
-                                        androidx.compose.material3.Icon(
+                                        Icon(
                                             imageVector = Icons.Default.Refresh,
                                             contentDescription = "Retry failed CI",
                                             tint = statusColors.closed,

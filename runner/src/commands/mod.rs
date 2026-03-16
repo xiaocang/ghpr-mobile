@@ -7,6 +7,17 @@ use serde_json::Value;
 /// Must match the server-side ALLOWED_COMMAND_TYPES.
 const ALLOWED_COMMAND_TYPES: &[&str] = &["retry-ci", "retry-flaky"];
 
+pub fn is_valid_repo_name(name: &str) -> bool {
+    let parts: Vec<&str> = name.splitn(3, '/').collect();
+    if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
+        return false;
+    }
+    parts.iter().all(|part| {
+        part.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-')
+    })
+}
+
 pub async fn execute(
     command_type: &str,
     payload: &Value,

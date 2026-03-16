@@ -107,7 +107,7 @@ async fn cmd_run() -> Result<(), String> {
 
     // Fetch subscriptions (includes last stored notifLastModified)
     let subs = worker.list_subscriptions().await?;
-    let subscriptions = subs.subscriptions;
+    let mut subscriptions = subs.subscriptions;
     let mut last_modified = subs.notif_last_modified;
     println!(
         "Runner started. {} subscriptions, polling every {}s...{}",
@@ -116,7 +116,26 @@ async fn cmd_run() -> Result<(), String> {
         if last_modified.is_some() { " (resuming with stored Last-Modified)" } else { "" }
     );
 
+    let sub_refresh_interval = std::time::Duration::from_secs(5 * 60);
+    let mut last_sub_refresh = std::time::Instant::now();
+
     loop {
+        // Periodically refresh subscriptions
+        if last_sub_refresh.elapsed() >= sub_refresh_interval {
+            match worker.list_subscriptions().await {
+                Ok(subs) => {
+                    if subs.subscriptions != subscriptions {
+                        println!("Subscriptions updated: {} repos", subs.subscriptions.len());
+                    }
+                    subscriptions = subs.subscriptions;
+                }
+                Err(e) => {
+                    eprintln!("Failed to refresh subscriptions: {e}");
+                }
+            }
+            last_sub_refresh = std::time::Instant::now();
+        }
+
         // 1. Poll GitHub notifications and sync to worker
         poller::poll_and_sync(&worker, &cfg.github_token, &subscriptions, &mut last_modified)
             .await;

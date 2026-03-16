@@ -114,6 +114,13 @@ impl WorkerApi {
         }
     }
 
+    fn check_response(res: &reqwest::Response, context: &str) -> Result<(), String> {
+        if !res.status().is_success() {
+            return Err(format!("{context}: HTTP {}", res.status().as_u16()));
+        }
+        Ok(())
+    }
+
     pub async fn register(
         &self,
         api_key: &str,
@@ -130,6 +137,7 @@ impl WorkerApi {
             .await
             .map_err(|e| format!("register request failed: {e}"))?;
 
+        Self::check_response(&res, "register")?;
         res.json::<ApiResponse>()
             .await
             .map_err(|e| format!("register response parse failed: {e}"))
@@ -144,6 +152,7 @@ impl WorkerApi {
             .await
             .map_err(|e| format!("poll request failed: {e}"))?;
 
+        Self::check_response(&res, "poll commands")?;
         res.json::<PollResponse>()
             .await
             .map_err(|e| format!("poll response parse failed: {e}"))
@@ -166,6 +175,7 @@ impl WorkerApi {
             .await
             .map_err(|e| format!("report result failed: {e}"))?;
 
+        Self::check_response(&res, "report result")?;
         res.json::<ApiResponse>()
             .await
             .map_err(|e| format!("report result parse failed: {e}"))
@@ -181,6 +191,7 @@ impl WorkerApi {
             .await
             .map_err(|e| format!("sync request failed: {e}"))?;
 
+        Self::check_response(&res, "sync")?;
         res.json::<SyncResponse>()
             .await
             .map_err(|e| format!("sync response parse failed: {e}"))
@@ -196,6 +207,7 @@ impl WorkerApi {
             .await
             .map_err(|e| format!("poll-status request failed: {e}"))?;
 
+        Self::check_response(&res, "poll-status")?;
         res.json::<ApiResponse>()
             .await
             .map_err(|e| format!("poll-status response parse failed: {e}"))
@@ -210,6 +222,7 @@ impl WorkerApi {
             .await
             .map_err(|e| format!("subscriptions request failed: {e}"))?;
 
+        Self::check_response(&res, "subscriptions")?;
         res.json::<SubscriptionsResponse>()
             .await
             .map_err(|e| format!("subscriptions response parse failed: {e}"))
@@ -224,6 +237,7 @@ impl WorkerApi {
             .await
             .map_err(|e| format!("status request failed: {e}"))?;
 
+        Self::check_response(&res, "status")?;
         res.json::<serde_json::Value>()
             .await
             .map_err(|e| format!("status response parse failed: {e}"))
