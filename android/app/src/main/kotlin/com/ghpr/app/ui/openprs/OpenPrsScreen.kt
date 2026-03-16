@@ -37,7 +37,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.ghpr.app.data.OpenPullRequest
 import com.ghpr.app.data.RetryFlakyJob
@@ -293,8 +292,8 @@ private fun OpenPrCard(
                                     CircularProgressIndicator(
                                         modifier = Modifier
                                             .padding(start = 2.dp)
-                                            .height(Dp(20f))
-                                            .width(Dp(20f)),
+                                            .height(20.dp)
+                                            .width(20.dp),
                                         strokeWidth = 2.dp,
                                     )
                                 }
@@ -305,7 +304,7 @@ private fun OpenPrCard(
                                     )
                                     IconButton(
                                         onClick = { onCancelRetryFlaky?.invoke() },
-                                        modifier = Modifier.padding(start = 2.dp).height(Dp(24f)),
+                                        modifier = Modifier.padding(start = 2.dp).height(24.dp),
                                     ) {
                                         androidx.compose.material3.Icon(
                                             imageVector = Icons.Default.Close,
@@ -317,7 +316,7 @@ private fun OpenPrCard(
                                 else -> {
                                     IconButton(
                                         onClick = onRetryFlaky,
-                                        modifier = Modifier.padding(start = 2.dp).height(Dp(24f)),
+                                        modifier = Modifier.padding(start = 2.dp).height(24.dp),
                                     ) {
                                         androidx.compose.material3.Icon(
                                             imageVector = Icons.Default.Refresh,

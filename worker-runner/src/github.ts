@@ -65,5 +65,5 @@ export async function rerunFailedJobs(
     }
   );
 
-  return { ok: res.status <= 201, status: res.status };
+  return { ok: res.ok, status: res.status };
 }

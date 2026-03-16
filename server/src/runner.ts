@@ -36,13 +36,6 @@ type CommandResultBody = {
   result?: unknown;
 };
 
-/**
- * Allowed command types for the worker↔runner RPC protocol.
- * Both sides must agree on this set — the runner rejects unknown types.
- */
-const ALLOWED_COMMAND_TYPES = ["retry-ci", "retry-flaky"] as const;
-type CommandType = (typeof ALLOWED_COMMAND_TYPES)[number];
-
 type SubmitCommandBody = {
   repoFullName?: string;
   prNumber?: number;
