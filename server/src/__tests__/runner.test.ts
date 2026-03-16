@@ -68,17 +68,31 @@ describe("POST /runners/register", () => {
     const req = jsonRequest(
       "POST",
       "/runners/register",
-      { userId: "u2", deviceId: "device-dup", pairingToken: "tok-2", githubLogin: "user2" },
+      { userId: "u1", deviceId: "device-dup", pairingToken: "tok-2", githubLogin: "user2" },
       apiHeaders()
     );
-    await SELF.fetch(req);
+    const res = await SELF.fetch(req);
+    expect(res.status).toBe(200);
 
     const row = await env.DB
       .prepare("SELECT user_id, github_login FROM runners WHERE device_id = ?")
       .bind("device-dup")
       .first<{ user_id: string; github_login: string }>();
-    expect(row!.user_id).toBe("u2");
+    expect(row!.user_id).toBe("u1");
     expect(row!.github_login).toBe("user2");
+  });
+
+  it("rejects re-registration by a different user", async () => {
+    await registerRunner("device-hijack", "tok-1");
+
+    const req = jsonRequest(
+      "POST",
+      "/runners/register",
+      { userId: "u2", deviceId: "device-hijack", pairingToken: "tok-2", githubLogin: "attacker" },
+      apiHeaders()
+    );
+    const res = await SELF.fetch(req);
+    expect(res.status).toBe(403);
   });
 
   it("saves optional label", async () => {
