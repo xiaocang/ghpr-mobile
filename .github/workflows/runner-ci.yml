@@ -1,0 +1,41 @@
+name: Runner CI
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'runner/**'
+      - '.github/workflows/runner-ci.yml'
+  pull_request:
+    branches: [master]
+    paths:
+      - 'runner/**'
+      - '.github/workflows/runner-ci.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: runner
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: runner
+
+      - name: Type check
+        run: cargo check
+
+      - name: Build
+        run: cargo build
+
+      - name: Run tests
+        run: cargo test

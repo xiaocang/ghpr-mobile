@@ -1,0 +1,40 @@
+name: Worker-Runner CI
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'worker-runner/**'
+      - '.github/workflows/worker-runner-ci.yml'
+  pull_request:
+    branches: [master]
+    paths:
+      - 'worker-runner/**'
+      - '.github/workflows/worker-runner-ci.yml'
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: worker-runner
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: worker-runner/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run check
+
+      - name: Run tests
+        run: npm test
