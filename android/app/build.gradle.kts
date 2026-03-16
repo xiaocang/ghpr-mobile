@@ -52,12 +52,12 @@ android {
 
     signingConfigs {
         create("release") {
-            val ks = System.getenv("RELEASE_KEYSTORE_FILE")
+            val ks = System.getenv("KEYSTORE_FILE")
             if (ks != null) {
                 storeFile = file(ks)
-                storePassword = System.getenv("RELEASE_KEYSTORE_PASSWORD")
-                keyAlias = System.getenv("RELEASE_KEY_ALIAS")
-                keyPassword = System.getenv("RELEASE_KEY_PASSWORD")
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEYSTORE_PASSWORD")
             }
         }
     }
@@ -81,7 +81,7 @@ android {
 
     buildTypes {
         release {
-            val ks = System.getenv("RELEASE_KEYSTORE_FILE")
+            val ks = System.getenv("KEYSTORE_FILE")
             signingConfig = if (ks != null) {
                 signingConfigs.getByName("release")
             } else {
