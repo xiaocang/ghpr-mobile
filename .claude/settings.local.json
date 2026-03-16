@@ -6,5 +6,9 @@
       "Bash(curl:*)",
       "Bash(grep:*)"
     ]
-  }
+  },
+  "enabledMcpjsonServers": [
+    "agentmux"
+  ],
+  "enableAllProjectMcpServers": true
 }
