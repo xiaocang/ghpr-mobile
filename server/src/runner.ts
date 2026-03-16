@@ -503,7 +503,9 @@ async function postProcessRetryFlaky(
 
   if (!job) return;
 
-  const newRemaining = job.retries_remaining - 1;
+  const newRemaining = retriedCount > 0
+    ? Math.max(0, job.retries_remaining - 1)
+    : job.retries_remaining;
 
   if (retriedCount === 0) {
     // No failures found — mark completed
