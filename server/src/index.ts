@@ -6,6 +6,7 @@ import {
   type PushDataPayload,
   type FcmSendResult,
 } from "./fcm";
+import { resolveDeviceTokensForPr } from "./shared";
 import {
   requireRunnerAuth,
   handleRunnerRegister,
@@ -387,25 +388,6 @@ export function buildPushPayload(event: GitHubEvent, deliveryId: string): PushDa
     prTitle: event.pull_request?.title?.trim() || undefined,
     prUrl: event.pull_request?.html_url?.trim() || undefined,
   };
-}
-
-async function resolveDeviceTokensForPr(db: D1Database, repoFullName: string, prNumber: number): Promise<string[]> {
-  const result = await db
-    .prepare(
-      `SELECT DISTINCT dt.token AS token
-       FROM repo_subscriptions rs
-       JOIN device_tokens dt ON dt.user_id = rs.user_id
-       JOIN runners r ON r.user_id = rs.user_id
-       JOIN pr_user_involvement pui
-         ON pui.repo_full_name = rs.repo_full_name
-         AND pui.pr_number = ?
-         AND LOWER(pui.github_login) = LOWER(r.github_login)
-       WHERE rs.repo_full_name = ?`
-    )
-    .bind(prNumber, repoFullName)
-    .all<DeviceTokenRow>();
-
-  return (result.results ?? []).map((row) => row.token);
 }
 
 async function fanOutPush(env: Env, payload: PushDataPayload): Promise<number> {
