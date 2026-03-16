@@ -391,28 +391,21 @@ export async function handlePollCommands(
   runner: RunnerRow
 ): Promise<Response> {
   const result = await env.DB.prepare(
-    `SELECT id, command_type, payload, created_at
-     FROM runner_commands
-     WHERE runner_id = ? AND status = 'pending'
-       AND (scheduled_after IS NULL OR scheduled_after <= datetime('now'))
-     ORDER BY created_at ASC
-     LIMIT 10`
+    `UPDATE runner_commands
+     SET status = 'running', updated_at = datetime('now')
+     WHERE id IN (
+       SELECT id FROM runner_commands
+       WHERE runner_id = ? AND status = 'pending'
+         AND (scheduled_after IS NULL OR scheduled_after <= datetime('now'))
+       ORDER BY created_at ASC
+       LIMIT 10
+     )
+     RETURNING id, command_type, payload, created_at`
   )
     .bind(runner.id)
     .all<{ id: number; command_type: string; payload: string; created_at: string }>();
 
   const commands = result.results ?? [];
-
-  if (commands.length > 0) {
-    const ids = commands.map((c) => c.id);
-    const placeholders = ids.map(() => "?").join(",");
-    await env.DB.prepare(
-      `UPDATE runner_commands SET status = 'running', updated_at = datetime('now')
-       WHERE id IN (${placeholders})`
-    )
-      .bind(...ids)
-      .run();
-  }
 
   return jsonResponse({
     ok: true,
