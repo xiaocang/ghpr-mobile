@@ -80,7 +80,8 @@ fun NeoButton(
 
     Box(
         modifier = modifier
-            .padding(bottom = 4.dp, end = 4.dp)
+            .padding(bottom = 4.dp, end = 4.dp),
+        propagateMinConstraints = true,
     ) {
         // Shadow
         Box(
@@ -92,7 +93,6 @@ fun NeoButton(
         // Button surface
         Box(
             modifier = Modifier
-                .fillMaxWidth()
                 .offset(
                     x = if (isPressed) 3.dp else 0.dp,
                     y = if (isPressed) 3.dp else 0.dp,

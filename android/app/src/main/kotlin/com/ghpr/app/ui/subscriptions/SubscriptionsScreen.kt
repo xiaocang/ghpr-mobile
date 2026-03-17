@@ -115,6 +115,7 @@ fun SubscriptionsScreen(viewModel: SubscriptionsViewModel) {
 
 @Composable
 private fun SubscriptionItem(repo: String, onRemove: () -> Unit) {
+    var showConfirmDialog by remember { mutableStateOf(false) }
     val parts = repo.split("/", limit = 2)
     val owner = if (parts.size == 2) parts[0] else ""
     val repoName = if (parts.size == 2) parts[1] else repo
@@ -144,12 +145,62 @@ private fun SubscriptionItem(repo: String, onRemove: () -> Unit) {
                     style = MonoStyle.codeMedium,
                 )
             }
-            IconButton(onClick = onRemove) {
+            IconButton(onClick = { showConfirmDialog = true }) {
                 Icon(
                     Icons.Default.Close,
                     contentDescription = "Remove",
                     tint = MaterialTheme.colorScheme.error,
                 )
+            }
+        }
+    }
+
+    if (showConfirmDialog) {
+        UnsubscribeConfirmDialog(
+            repo = repo,
+            onDismiss = { showConfirmDialog = false },
+            onConfirm = {
+                showConfirmDialog = false
+                onRemove()
+            },
+        )
+    }
+}
+
+@Composable
+private fun UnsubscribeConfirmDialog(repo: String, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    Dialog(onDismissRequest = onDismiss) {
+        NeoCard {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Text(
+                    text = "Unsubscribe",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "Remove subscription for $repo?",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                ) {
+                    NeoButton(
+                        onClick = onDismiss,
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                    ) {
+                        Text("Cancel")
+                    }
+                    NeoButton(
+                        onClick = onConfirm,
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError,
+                    ) {
+                        Text("Confirm")
+                    }
+                }
             }
         }
     }
