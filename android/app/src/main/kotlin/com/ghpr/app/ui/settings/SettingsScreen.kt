@@ -51,6 +51,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import com.ghpr.app.auth.GitHubAuthState
 import com.ghpr.app.data.PollingMode
 import com.ghpr.app.ui.components.AvatarCircle
@@ -290,6 +291,12 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                     }
                 }
             }
+            if (state.showRevokeRunnerConfirmDialog) {
+                RevokeRunnerConfirmDialog(
+                    onConfirm = viewModel::confirmRevokeRunner,
+                    onDismiss = viewModel::dismissRevokeRunnerDialog,
+                )
+            }
 
             // About Section
             SectionHeader("About")
@@ -526,6 +533,48 @@ private fun RunnerModeConfirmDialog(
             }
         },
     )
+}
+
+@Composable
+private fun RevokeRunnerConfirmDialog(
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        NeoCard {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Text(
+                    text = "Revoke Runner",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "This will revoke the runner registration. The runner will stop polling GitHub notifications on your behalf.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                ) {
+                    NeoButton(
+                        onClick = onDismiss,
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                    ) {
+                        Text("Cancel")
+                    }
+                    NeoButton(
+                        onClick = onConfirm,
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError,
+                    ) {
+                        Text("Revoke")
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable

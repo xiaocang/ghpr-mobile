@@ -35,13 +35,14 @@ data class SettingsUiState(
     val appVersion: String = "",
     val pollingMode: PollingMode = PollingMode.CLIENT,
     val showRunnerModeConfirmDialog: Boolean = false,
-    val runnerPollingStatus: String = "Unknown",
+    val runnerPollingStatus: String = "No runner registered",
     val runnerPollingError: String? = null,
     val runnerLastPollAt: String? = null,
     val runnerLastSeenAt: String? = null,
     val runnerPairingToken: String? = null,
     val runnerRegistering: Boolean = false,
     val runnerRevoking: Boolean = false,
+    val showRevokeRunnerConfirmDialog: Boolean = false,
 )
 
 class SettingsViewModel(
@@ -65,6 +66,7 @@ class SettingsViewModel(
     private val _runnerPairingToken = MutableStateFlow<String?>(null)
     private val _runnerRegistering = MutableStateFlow(false)
     private val _runnerRevoking = MutableStateFlow(false)
+    private val _showRevokeRunnerConfirmDialog = MutableStateFlow(false)
 
     init {
         viewModelScope.launch {
@@ -86,6 +88,7 @@ class SettingsViewModel(
         _runnerPairingToken,
         _runnerRegistering,
         _runnerRevoking,
+        _showRevokeRunnerConfirmDialog,
     ) { values ->
         val authState = values[0] as GitHubAuthState
         val interval = values[1] as Int
@@ -96,6 +99,7 @@ class SettingsViewModel(
         val pairingToken = values[6] as String?
         val registering = values[7] as Boolean
         val revoking = values[8] as Boolean
+        val showRevokeDialog = values[9] as Boolean
         SettingsUiState(
             gitHubAuthState = authState,
             refreshIntervalMinutes = interval,
@@ -122,6 +126,7 @@ class SettingsViewModel(
             runnerPairingToken = pairingToken,
             runnerRegistering = registering,
             runnerRevoking = revoking,
+            showRevokeRunnerConfirmDialog = showRevokeDialog,
         )
     }.stateIn(
         viewModelScope,
@@ -226,6 +231,11 @@ class SettingsViewModel(
     }
 
     fun revokeRunner() {
+        _showRevokeRunnerConfirmDialog.value = true
+    }
+
+    fun confirmRevokeRunner() {
+        _showRevokeRunnerConfirmDialog.value = false
         viewModelScope.launch {
             _runnerRevoking.value = true
             runCatching { apiClient.api.revokeRunner() }
@@ -238,6 +248,10 @@ class SettingsViewModel(
                 }
             _runnerRevoking.value = false
         }
+    }
+
+    fun dismissRevokeRunnerDialog() {
+        _showRevokeRunnerConfirmDialog.value = false
     }
 
     private fun generatePairingToken(): String {
