@@ -10,6 +10,7 @@ binding = "SERVER"
 service = "ghpr-server"
 
 [vars]
+# Official server. Override if you self-host.
 WORKER_URL = "https://ghpr-server.xiaocang.workers.dev"
 
 # Secrets (set via `wrangler secret put`):

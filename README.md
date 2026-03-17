@@ -2,59 +2,64 @@
 
 GitHub PR notification system — get push notifications on your phone when PRs you care about are updated.
 
-## Structure
+## Features
 
-- `android/` — Android client (Kotlin + Compose)
-- `server/` — GitHub webhook + FCM push backend (Cloudflare Workers + D1)
-- `docs/` — product and system design notes
+- Real-time push notifications for PR events (reviews, comments, status checks, merges)
+- Subscribe to specific repositories
+- CI retry commands from your phone (with self-hosted runner support)
+- Lightweight backend on Cloudflare Workers (free tier friendly)
 
-## Roadmap
+## Architecture
 
-1. **Android MVP** (`android/`)
-   - GitHub sign-in flow
-   - PR list + detail
-   - open-triggered refresh with minimum interval guard
-   - push-triggered refresh hook
-2. **Push server MVP** (`server/`)
-   - GitHub webhook ingestion
-   - signature validation + idempotency
-   - subscription matching
-   - FCM notification dispatch
-3. **Documentation** (`docs/`)
-   - event model
-   - API and sync contracts
-   - onboarding and runtime settings checklist
-
-## Implemented so far
-
-- Android `core-domain` module with tested refresh decision logic
-- Push server with webhook ingestion, device registration, repo subscriptions, and mobile sync API
-- Push-ready user settings checklist
-- Mobile sync contract for FCM-triggered refresh
-
-## Android GitHub OAuth setup
-
-The Android app uses GitHub OAuth Device Flow and requires an OAuth App `client_id`.
-
-1. Open `android/local.properties` (gitignored).
-2. Add:
-
-```properties
-github.clientId=YOUR_GITHUB_OAUTH_CLIENT_ID
+```
+GitHub ──webhook──▶ Server (CF Worker + D1) ──FCM──▶ Android App
+                         ▲
+                    Runner (CF Worker or native) ── runs CI retry commands
 ```
 
-You can also pass `-Pgithub.clientId=...` from Gradle.  
-`client_id` is safe to ship in the app, but do not put `client_secret` in Android.
+| Component | Path | Stack |
+|-----------|------|-------|
+| Android app | `android/` | Kotlin, Jetpack Compose |
+| Push server | `server/` | Cloudflare Workers, D1, TypeScript |
+| CI runner (worker) | `worker-runner/` | Cloudflare Workers, TypeScript |
 
-## Android server URL setup
+## Getting started
 
-The Android app reads backend URL from `ghpr.serverUrl`.
+### 1. Download the app
 
-In `android/local.properties`:
+Grab the latest APK from [Releases](https://github.com/xiaocang/ghpr-mobile/releases).
 
-```properties
-ghpr.serverUrl=https://<your-worker>.workers.dev
+To build from source, see [`android/README.md`](android/README.md).
+
+### 2. Deploy a runner (optional)
+
+The runner enables CI retry commands from the app. It points to the official server by default.
+
+```bash
+cd worker-runner
+npm install
+npx wrangler secret put GITHUB_TOKEN
+npx wrangler secret put RUNNER_TOKEN
+npx wrangler deploy
 ```
 
-You can also pass `-Pghpr.serverUrl=...` from Gradle.
-Debug builds fail fast when this value is missing.
+### 3. Self-host the server (optional)
+
+If you want to run your own server instance, see [`server/README.md`](server/README.md) for deployment instructions.
+
+## Development
+
+```bash
+# Server local dev
+cd server && npm run dev
+
+# Worker runner local dev
+cd worker-runner && npm run dev
+
+# Server tests
+cd server && npm test
+```
+
+## License
+
+MIT

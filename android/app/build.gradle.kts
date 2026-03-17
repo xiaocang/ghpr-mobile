@@ -35,17 +35,6 @@ val defaultServerUrl = "https://ghpr-server.xiaocang.workers.dev"
 val ghprServerUrl = (configuredServerUrl.ifBlank { defaultServerUrl })
     .replace("\"", "\\\"")
 
-gradle.taskGraph.whenReady {
-    val buildingAppDebug = allTasks.any { task ->
-        task.path.startsWith(":app:") && task.path.contains("Debug", ignoreCase = true)
-    }
-    if (buildingAppDebug && configuredServerUrl.isBlank()) {
-        throw GradleException(
-            "Missing ghpr.serverUrl. Set it in android/local.properties or pass -Pghpr.serverUrl=... for debug builds."
-        )
-    }
-}
-
 android {
     namespace = "com.ghpr.app"
     compileSdk = 35

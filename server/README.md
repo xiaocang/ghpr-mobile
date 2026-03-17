@@ -16,6 +16,53 @@ This service receives GitHub webhook events and sends device push via FCM.
 - Optional Queue for async fan-out
 - D1 for event dedupe and subscription metadata (or Postgres later)
 
+## Deployment
+
+### 1. Create the D1 database
+
+```bash
+cd server
+npm install
+npx wrangler d1 create ghpr
+```
+
+Copy the database ID into `wrangler.toml`.
+
+### 2. Initialize schema
+
+```bash
+npx wrangler d1 execute ghpr --remote --file=schema.sql
+```
+
+### 3. Set secrets
+
+```bash
+npx wrangler secret put GITHUB_WEBHOOK_SECRET
+npx wrangler secret put FCM_PROJECT_ID
+npx wrangler secret put FCM_CLIENT_EMAIL
+npx wrangler secret put FCM_PRIVATE_KEY
+```
+
+Optional but recommended:
+
+```bash
+npx wrangler secret put INTERNAL_API_KEY
+```
+
+### 4. Deploy
+
+```bash
+npx wrangler deploy
+```
+
+### 5. Configure the GitHub webhook
+
+1. Go to your repo (or org) **Settings > Webhooks > Add webhook**.
+2. Set **Payload URL** to `https://<your-server-worker>.workers.dev/github/webhook`.
+3. Set **Content type** to `application/json`.
+4. Set **Secret** to the same value you used for `GITHUB_WEBHOOK_SECRET`.
+5. Select events: **Pull requests**, **Pull request reviews**, **Check runs**, **Issue comments**.
+
 ## Local development
 
 Prerequisite: Node.js 20+ (Wrangler 4 requirement).
@@ -25,24 +72,6 @@ cd server
 npm install
 npm run dev
 ```
-
-## D1 binding and schema
-
-- The Worker code expects D1 binding name `DB` in `wrangler.toml`.
-- Initialize schema on the same D1 database before testing protected APIs:
-
-```bash
-cd server
-npx wrangler d1 execute ghpr --remote --file=schema.sql
-```
-
-## Required secrets
-
-- `GITHUB_WEBHOOK_SECRET`
-- `FCM_PROJECT_ID`
-- `FCM_CLIENT_EMAIL`
-- `FCM_PRIVATE_KEY`
-- `INTERNAL_API_KEY` (optional but recommended for management endpoints)
 
 ## Endpoints
 
@@ -76,11 +105,6 @@ Management endpoints require `x-api-key` when `INTERNAL_API_KEY` is set.
 - `POST /runners/sync` — sync runner state
 - `POST /runners/poll-status` — update poll status
 - `GET /runners/subscriptions` — list subscriptions for runner's user
-
-## Notes
-
-Current implementation is a bootstrap scaffold to start development and integration tests.
-
 
 ## Matching model
 

@@ -8,6 +8,8 @@ android/app/google-services.json
 # Node
 server/node_modules/
 server/.wrangler/
+worker-runner/node_modules/
+worker-runner/.wrangler/
 
 # IDE
 .idea/

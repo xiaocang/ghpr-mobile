@@ -8,7 +8,7 @@ enabled = true
 [[d1_databases]]
 binding = "DB"
 database_name = "ghpr"
-database_id = "079f40b8-aa1f-4495-a89a-0d54546c16f1"
+database_id = "<your-d1-database-id>"
 
 [triggers]
 crons = ["*/5 * * * *"]
