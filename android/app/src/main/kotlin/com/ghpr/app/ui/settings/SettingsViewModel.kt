@@ -115,7 +115,7 @@ class SettingsViewModel(
             pollingMode = pollMode,
             showRunnerModeConfirmDialog = showDialog,
             runnerPollingStatus = when {
-                rStatus == null -> "Unknown"
+                rStatus == null -> "No runner registered"
                 rStatus.deviceId == null -> "No runner registered"
                 rStatus.lastPollStatus.isNullOrBlank() -> "No polls yet"
                 else -> rStatus.lastPollStatus
