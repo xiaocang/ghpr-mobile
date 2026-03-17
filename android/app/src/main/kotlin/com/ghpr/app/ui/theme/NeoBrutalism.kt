@@ -92,6 +92,7 @@ fun NeoButton(
         // Button surface
         Box(
             modifier = Modifier
+                .fillMaxWidth()
                 .offset(
                     x = if (isPressed) 3.dp else 0.dp,
                     y = if (isPressed) 3.dp else 0.dp,

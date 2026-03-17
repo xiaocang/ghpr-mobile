@@ -1,4 +1,5 @@
 import { normalizeAction } from "./normalize";
+import { checkRateLimit, cleanupRateLimits } from "./rate-limit";
 import {
   sendFcmPush,
   resetAccessTokenCache,
@@ -691,6 +692,10 @@ export default {
       if (authResult instanceof Response) return authResult;
       const { userId } = authResult;
 
+      const ip = request.headers.get("cf-connecting-ip") ?? "unknown";
+      const rl = await checkRateLimit(env.DB, `ip:${ip}`, 60, 60);
+      if (rl) return rl;
+
       if (url.pathname === "/devices/register" && request.method === "POST") {
         return handleRegisterDevice(request, env, userId);
       }
@@ -750,6 +755,8 @@ export default {
     if (commandResultMatch && request.method === "POST") {
       const runnerAuth = await requireRunnerAuth(request, env);
       if (runnerAuth instanceof Response) return runnerAuth;
+      const runnerRl = await checkRateLimit(env.DB, `runner:${runnerAuth.runner.id}`, 20, 60);
+      if (runnerRl) return runnerRl;
       const commandId = parseInt(commandResultMatch[1], 10);
       return handleCommandResult(request, env, runnerAuth.runner, commandId);
     }
@@ -759,6 +766,9 @@ export default {
       const runnerAuth = await requireRunnerAuth(request, env);
       if (runnerAuth instanceof Response) return runnerAuth;
       const { runner } = runnerAuth;
+
+      const runnerRl = await checkRateLimit(env.DB, `runner:${runner.id}`, 20, 60);
+      if (runnerRl) return runnerRl;
 
       if (url.pathname === "/runners/status" && request.method === "GET") {
         return handleRunnerStatus(request, env, runner);
@@ -784,5 +794,6 @@ export default {
   },
   async scheduled(_event, env, _ctx) {
     await cleanupStaleCommands(env);
+    await cleanupRateLimits(env.DB);
   },
 } satisfies ExportedHandler<Env>;

@@ -242,7 +242,12 @@ class SettingsViewModel(
         return (1..8).map { chars.random() }.joinToString("")
     }
 
+    private var lastRefreshStatusMs = 0L
+
     fun refreshRunnerPollingStatus() {
+        val now = System.currentTimeMillis()
+        if (now - lastRefreshStatusMs < 1_000L) return
+        lastRefreshStatusMs = now
         viewModelScope.launch {
             runCatching { apiClient.api.runnerStatus() }
                 .onSuccess { response ->

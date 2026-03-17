@@ -26,7 +26,12 @@ class SubscriptionsViewModel(
     private val _state = MutableStateFlow(SubscriptionsUiState())
     val state: StateFlow<SubscriptionsUiState> = _state
 
+    private var lastLoadMs = 0L
+
     fun load() {
+        val now = System.currentTimeMillis()
+        if (now - lastLoadMs < 1_000L) return
+        lastLoadMs = now
         viewModelScope.launch {
             val cached = cacheStore.readSubscriptions()
             _state.value = _state.value.copy(

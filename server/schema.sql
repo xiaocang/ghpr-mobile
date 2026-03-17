@@ -76,6 +76,13 @@ CREATE TABLE IF NOT EXISTS runner_commands (
 );
 CREATE INDEX IF NOT EXISTS idx_runner_commands_runner_status ON runner_commands (runner_id, status);
 
+CREATE TABLE IF NOT EXISTS rate_limits (
+  key TEXT NOT NULL,
+  window_start INTEGER NOT NULL,
+  count INTEGER NOT NULL DEFAULT 1,
+  PRIMARY KEY (key, window_start)
+);
+
 CREATE TABLE IF NOT EXISTS flaky_retry_jobs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   repo_full_name TEXT NOT NULL,

@@ -22,7 +22,7 @@ impl Config {
         let poll_interval_secs: u64 = env::var("GHPR_POLL_INTERVAL")
             .ok()
             .and_then(|v| v.parse().ok())
-            .unwrap_or(30);
+            .unwrap_or(300);
 
         Ok(Config {
             github_token,

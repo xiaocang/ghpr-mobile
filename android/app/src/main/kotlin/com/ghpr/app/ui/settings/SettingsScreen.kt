@@ -331,7 +331,7 @@ private fun GitHubAccountSection(
 ) {
     when (authState) {
         is GitHubAuthState.SignedOut -> {
-            NeoButton(onClick = onLogin) {
+            NeoButton(onClick = onLogin, modifier = Modifier.fillMaxWidth()) {
                 Text("Connect GitHub Account")
             }
         }
