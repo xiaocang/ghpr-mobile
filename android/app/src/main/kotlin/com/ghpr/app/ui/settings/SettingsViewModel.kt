@@ -14,6 +14,9 @@ import com.ghpr.app.data.RunnerStatusResponse
 import com.ghpr.app.data.PollingMode
 import com.ghpr.app.data.PollingScheduler
 import com.ghpr.domain.refresh.RefreshSettings
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -114,8 +117,8 @@ class SettingsViewModel(
                 else -> rStatus.lastPollStatus
             },
             runnerPollingError = rStatus?.lastPollError,
-            runnerLastPollAt = rStatus?.lastPollAt,
-            runnerLastSeenAt = rStatus?.lastSeenAt,
+            runnerLastPollAt = rStatus?.lastPollAt?.let { formatUtcToLocal(it) },
+            runnerLastSeenAt = rStatus?.lastSeenAt?.let { formatUtcToLocal(it) },
             runnerPairingToken = pairingToken,
             runnerRegistering = registering,
             runnerRevoking = revoking,
@@ -240,6 +243,19 @@ class SettingsViewModel(
     private fun generatePairingToken(): String {
         val chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
         return (1..8).map { chars.random() }.joinToString("")
+    }
+
+    private fun formatUtcToLocal(utcTimestamp: String): String {
+        return try {
+            val utcFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+            utcFormat.timeZone = TimeZone.getTimeZone("UTC")
+            val date = utcFormat.parse(utcTimestamp) ?: return utcTimestamp
+            val localFormat = SimpleDateFormat("MMM dd HH:mm", Locale.getDefault())
+            localFormat.timeZone = TimeZone.getDefault()
+            localFormat.format(date)
+        } catch (_: Exception) {
+            utcTimestamp
+        }
     }
 
     private var lastRefreshStatusMs = 0L
