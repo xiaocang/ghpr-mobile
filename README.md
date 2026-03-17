@@ -4,9 +4,13 @@ GitHub PR notification system — get push notifications on your phone when PRs 
 
 ## Screenshots
 
-| PRs | History | Subscriptions | Settings |
-|-----|---------|---------------|----------|
-| ![PRs](screenshot/prs.jpg) | ![History](screenshot/history.jpg) | ![Subscriptions](screenshot/subscriptions.jpg) | ![Settings](screenshot/settings.jpg) |
+| PRs | History |
+|-----|---------|
+| ![PRs](screenshot/prs.jpg) | ![History](screenshot/history.jpg) |
+
+| Subscriptions | Settings |
+|---------------|----------|
+| ![Subscriptions](screenshot/subscriptions.jpg) | ![Settings](screenshot/settings.jpg) |
 
 ## Features
 
