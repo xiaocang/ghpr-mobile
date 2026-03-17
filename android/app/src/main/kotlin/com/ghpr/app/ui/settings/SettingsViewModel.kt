@@ -38,6 +38,7 @@ data class SettingsUiState(
     val runnerLastSeenAt: String? = null,
     val runnerPairingToken: String? = null,
     val runnerRegistering: Boolean = false,
+    val runnerRevoking: Boolean = false,
 )
 
 class SettingsViewModel(
@@ -60,6 +61,7 @@ class SettingsViewModel(
     private val runnerStatus = MutableStateFlow<RunnerStatusResponse?>(null)
     private val _runnerPairingToken = MutableStateFlow<String?>(null)
     private val _runnerRegistering = MutableStateFlow(false)
+    private val _runnerRevoking = MutableStateFlow(false)
 
     init {
         viewModelScope.launch {
@@ -80,6 +82,7 @@ class SettingsViewModel(
         runnerStatus,
         _runnerPairingToken,
         _runnerRegistering,
+        _runnerRevoking,
     ) { values ->
         val authState = values[0] as GitHubAuthState
         val interval = values[1] as Int
@@ -89,6 +92,7 @@ class SettingsViewModel(
         val rStatus = values[5] as RunnerStatusResponse?
         val pairingToken = values[6] as String?
         val registering = values[7] as Boolean
+        val revoking = values[8] as Boolean
         SettingsUiState(
             gitHubAuthState = authState,
             refreshIntervalMinutes = interval,
@@ -114,6 +118,7 @@ class SettingsViewModel(
             runnerLastSeenAt = rStatus?.lastSeenAt,
             runnerPairingToken = pairingToken,
             runnerRegistering = registering,
+            runnerRevoking = revoking,
         )
     }.stateIn(
         viewModelScope,
@@ -214,6 +219,21 @@ class SettingsViewModel(
                 }
             }
             _runnerRegistering.value = false
+        }
+    }
+
+    fun revokeRunner() {
+        viewModelScope.launch {
+            _runnerRevoking.value = true
+            runCatching { apiClient.api.revokeRunner() }
+                .onSuccess { response ->
+                    if (response.isSuccessful) {
+                        runnerStatus.value = null
+                        _runnerPairingToken.value = null
+                        refreshRunnerPollingStatus()
+                    }
+                }
+            _runnerRevoking.value = false
         }
     }
 

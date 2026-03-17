@@ -245,6 +245,29 @@ export async function handleRunnerSelfRegister(
   return jsonResponse({ ok: true });
 }
 
+export async function handleRunnerRevoke(
+  env: Env,
+  userId: string
+): Promise<Response> {
+  const runner = await env.DB.prepare(
+    "SELECT id FROM runners WHERE user_id = ? ORDER BY last_seen_at DESC LIMIT 1"
+  )
+    .bind(userId)
+    .first<{ id: number }>();
+
+  if (!runner) {
+    return jsonResponse({ ok: true });
+  }
+
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM runner_commands WHERE runner_id = ?").bind(runner.id),
+    env.DB.prepare("DELETE FROM flaky_retry_jobs WHERE runner_id = ?").bind(runner.id),
+    env.DB.prepare("DELETE FROM runners WHERE id = ?").bind(runner.id),
+  ]);
+
+  return jsonResponse({ ok: true });
+}
+
 export async function handleRunnerPollInfo(
   env: Env,
   userId: string

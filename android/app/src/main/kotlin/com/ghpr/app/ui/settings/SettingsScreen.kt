@@ -20,6 +20,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenuItem
@@ -64,6 +65,7 @@ import com.ghpr.app.push.hasNotificationPermission
 fun SettingsScreen(viewModel: SettingsViewModel) {
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
+    var showRunnerHelpDialog by remember { mutableStateOf(false) }
     var permissionGranted by remember { mutableStateOf(hasNotificationPermission(context)) }
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -166,7 +168,62 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                 )
             }
 
-            SectionHeader("Runner Polling")
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                SectionHeader("Runner Polling")
+                IconButton(onClick = { showRunnerHelpDialog = true }) {
+                    Icon(
+                        Icons.Filled.HelpOutline,
+                        contentDescription = "Runner help",
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+            if (showRunnerHelpDialog) {
+                AlertDialog(
+                    onDismissRequest = { showRunnerHelpDialog = false },
+                    title = { Text("Polling Modes") },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text(
+                                text = "Client Polling",
+                                style = MaterialTheme.typography.titleSmall,
+                            )
+                            Text(
+                                text = "The app polls GitHub notifications directly from the device at the configured interval. No extra setup needed.",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Text(
+                                text = "Runner Polling",
+                                style = MaterialTheme.typography.titleSmall,
+                            )
+                            Text(
+                                text = "A worker process runs on your machine/server and polls GitHub on behalf of the app. Requires deploying the worker-runner.",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            showRunnerHelpDialog = false
+                            context.startActivity(
+                                Intent(
+                                    Intent.ACTION_VIEW,
+                                    "https://github.com/xiaocang/ghpr-mobile#readme".toUri(),
+                                ),
+                            )
+                        }) {
+                            Text("Open README")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showRunnerHelpDialog = false }) {
+                            Text("Close")
+                        }
+                    },
+                )
+            }
             SettingsCard {
                 val clipboardManager = LocalClipboardManager.current
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -203,7 +260,10 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                             }
                         }
                         Text(
-                            text = "Copy this token and set it as RUNNER_TOKEN in your worker-runner configuration.",
+                            text = "Set these environment variables in your worker-runner:\n\n" +
+                                "\u2022 RUNNER_TOKEN \u2014 the token above\n" +
+                                "\u2022 GITHUB_TOKEN \u2014 a GitHub personal access token (with notifications scope)\n" +
+                                "\u2022 GHPR_SERVER_URL \u2014 your GHPR server URL (e.g. https://your-server.workers.dev)",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -213,6 +273,15 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                             enabled = !state.runnerRegistering,
                         ) {
                             Text(if (state.runnerRegistering) "Registering..." else "Register Runner")
+                        }
+                    } else {
+                        NeoButton(
+                            onClick = viewModel::revokeRunner,
+                            enabled = !state.runnerRevoking,
+                            containerColor = MaterialTheme.colorScheme.errorContainer,
+                            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                        ) {
+                            Text(if (state.runnerRevoking) "Revoking..." else "Revoke Runner")
                         }
                     }
 

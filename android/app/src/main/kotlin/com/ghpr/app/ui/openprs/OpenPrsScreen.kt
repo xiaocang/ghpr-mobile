@@ -2,22 +2,29 @@ package com.ghpr.app.ui.openprs
 
 import android.content.Intent
 import androidx.core.net.toUri
+import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -35,9 +42,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.ghpr.app.data.OpenPullRequest
 import com.ghpr.app.data.RetryFlakyJob
@@ -50,6 +62,8 @@ import com.ghpr.app.ui.theme.NeoButton
 import com.ghpr.app.ui.theme.MonoStyle
 import com.ghpr.app.ui.theme.NeoCard
 import com.ghpr.app.ui.theme.neoTopBarBorder
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -127,15 +141,24 @@ fun OpenPrsScreen(viewModel: OpenPrsViewModel) {
                             items(state.authoredPrs) { pr ->
                                 val key = OpenPrsViewModel.prKey(pr)
                                 val job = state.retryFlakyJobs[key]
-                                val isSubmitting = state.retryFlakySubmitting.contains(key)
-                                OpenPrCard(
-                                    pr = pr,
-                                    showReviewMetrics = true,
+                                val isRetrySubmitting = state.retryFlakySubmitting.contains(key)
+                                val isCiSubmitting = state.retryCiSubmitting.contains(key)
+                                val hasActiveJob = job != null && job.status == "active"
+                                val isCiFailure = pr.ciState?.uppercase() in listOf("FAILURE", "ERROR")
+                                val swipeEnabled = isCiFailure && !isRetrySubmitting && !isCiSubmitting && !hasActiveJob
+                                SwipeRevealBox(
+                                    enabled = swipeEnabled,
+                                    onRetryCi = { viewModel.retryCi(pr) },
                                     onRetryFlaky = { viewModel.retryFlaky(pr) },
-                                    onCancelRetryFlaky = { viewModel.cancelRetryFlaky(pr) },
-                                    retryFlakyJob = job,
-                                    isRetrySubmitting = isSubmitting,
-                                )
+                                ) {
+                                    OpenPrCard(
+                                        pr = pr,
+                                        showReviewMetrics = true,
+                                        onCancelRetryFlaky = { viewModel.cancelRetryFlaky(pr) },
+                                        retryFlakyJob = job,
+                                        isRetrySubmitting = isRetrySubmitting,
+                                    )
+                                }
                             }
                         }
                         if (state.reviewRequestedPrs.isNotEmpty()) {
@@ -231,10 +254,116 @@ private fun SsoBanner(ssoRequired: List<SsoAuthorizationRequired>) {
 }
 
 @Composable
+private fun SwipeRevealBox(
+    enabled: Boolean,
+    onRetryCi: () -> Unit,
+    onRetryFlaky: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    if (!enabled) {
+        content()
+        return
+    }
+
+    val revealWidthDp = 140.dp
+    val density = LocalDensity.current
+    val revealWidthPx = with(density) { revealWidthDp.toPx() }
+    val offsetX = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(6.dp)),
+    ) {
+        // Background action buttons — right-aligned, revealed when card slides left
+        Row(
+            modifier = Modifier
+                .matchParentSize()
+                .padding(horizontal = 16.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // Single retry (blue)
+            Box(
+                modifier = Modifier
+                    .width(60.dp)
+                    .fillMaxHeight()
+                    .padding(vertical = 4.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Color(0xFF3B82F6))
+                    .clickable {
+                        scope.launch {
+                            offsetX.animateTo(0f)
+                        }
+                        onRetryCi()
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = "\uD83D\uDD04",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+            }
+            // Retry flaky x3 (orange)
+            Box(
+                modifier = Modifier
+                    .width(60.dp)
+                    .fillMaxHeight()
+                    .padding(start = 4.dp, top = 4.dp, bottom = 4.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Color(0xFFF59E0B))
+                    .clickable {
+                        scope.launch {
+                            offsetX.animateTo(0f)
+                        }
+                        onRetryFlaky()
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = "\uD83D\uDD04x3",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+            }
+        }
+
+        // Foreground card — slides left
+        Box(
+            modifier = Modifier
+                .offset { IntOffset(offsetX.value.roundToInt(), 0) }
+                .background(MaterialTheme.colorScheme.background)
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onDragEnd = {
+                            scope.launch {
+                                // Snap: if past halfway, open; otherwise close
+                                if (offsetX.value < -revealWidthPx / 2) {
+                                    offsetX.animateTo(-revealWidthPx)
+                                } else {
+                                    offsetX.animateTo(0f)
+                                }
+                            }
+                        },
+                        onHorizontalDrag = { _, dragAmount ->
+                            scope.launch {
+                                val newOffset = (offsetX.value + dragAmount)
+                                    .coerceIn(-revealWidthPx, 0f)
+                                offsetX.snapTo(newOffset)
+                            }
+                        },
+                    )
+                },
+        ) {
+            content()
+        }
+    }
+}
+
+@Composable
 private fun OpenPrCard(
     pr: OpenPullRequest,
     showReviewMetrics: Boolean,
-    onRetryFlaky: (() -> Unit)? = null,
     onCancelRetryFlaky: (() -> Unit)? = null,
     retryFlakyJob: RetryFlakyJob? = null,
     isRetrySubmitting: Boolean = false,
@@ -287,7 +416,7 @@ private fun OpenPrCard(
                             else -> statusColors.pending
                         }
                         StatusBadge(text = ci.lowercase(), color = ciColor)
-                        if (onRetryFlaky != null && ci.uppercase() in listOf("FAILURE", "ERROR")) {
+                        if (ci.uppercase() in listOf("FAILURE", "ERROR")) {
                             when {
                                 isRetrySubmitting -> {
                                     CircularProgressIndicator(
@@ -310,18 +439,6 @@ private fun OpenPrCard(
                                         Icon(
                                             imageVector = Icons.Default.Close,
                                             contentDescription = "Cancel retry",
-                                            tint = statusColors.closed,
-                                        )
-                                    }
-                                }
-                                else -> {
-                                    IconButton(
-                                        onClick = onRetryFlaky,
-                                        modifier = Modifier.padding(start = 2.dp),
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Refresh,
-                                            contentDescription = "Retry failed CI",
                                             tint = statusColors.closed,
                                         )
                                     }

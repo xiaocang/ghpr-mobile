@@ -30,6 +30,8 @@ data class OpenPrsUiState(
     val retryFlakyJobs: Map<String, RetryFlakyJob> = emptyMap(),
     /** PR keys currently submitting a retry-flaky request */
     val retryFlakySubmitting: Set<String> = emptySet(),
+    /** PR keys currently submitting a retry-ci request */
+    val retryCiSubmitting: Set<String> = emptySet(),
 )
 
 class OpenPrsViewModel(
@@ -123,6 +125,39 @@ class OpenPrsViewModel(
                 _state.value = _state.value.copy(
                     error = e.message ?: "Unknown error",
                     isRefreshing = false,
+                )
+            }
+        }
+    }
+
+    fun retryCi(pr: OpenPullRequest) {
+        val key = prKey(pr)
+        if (_state.value.retryCiSubmitting.contains(key)) return
+        viewModelScope.launch {
+            _state.value = _state.value.copy(
+                retryCiSubmitting = _state.value.retryCiSubmitting + key,
+            )
+            try {
+                val repoFullName = "${pr.repoOwner}/${pr.repoName}"
+                val response = apiClient.api.retryCi(
+                    RetryFlakyRequest(repoFullName = repoFullName, prNumber = pr.number),
+                )
+                if (response.isSuccessful) {
+                    _state.value = _state.value.copy(
+                        retryFlakyMessage = "CI retry queued for ${pr.repoName}#${pr.number}",
+                    )
+                } else {
+                    _state.value = _state.value.copy(
+                        retryFlakyMessage = response.toApiErrorMessage("CI retry failed"),
+                    )
+                }
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(
+                    retryFlakyMessage = "CI retry failed: ${e.message}",
+                )
+            } finally {
+                _state.value = _state.value.copy(
+                    retryCiSubmitting = _state.value.retryCiSubmitting - key,
                 )
             }
         }

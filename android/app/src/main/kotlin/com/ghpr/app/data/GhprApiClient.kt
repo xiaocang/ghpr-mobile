@@ -97,6 +97,12 @@ interface GhprApi {
     @GET("runners/poll-info")
     suspend fun runnerStatus(): Response<RunnerStatusResponse>
 
+    @POST("runners/revoke")
+    suspend fun revokeRunner(): Response<ApiResult>
+
+    @POST("commands/retry-ci")
+    suspend fun retryCi(@Body body: RetryFlakyRequest): Response<ApiResult>
+
     @POST("commands/retry-flaky")
     suspend fun retryFlaky(@Body body: RetryFlakyRequest): Response<ApiResult>
 

@@ -15,6 +15,7 @@ import {
   handleRunnerUnregister,
   handleRunnerSync,
   handleRunnerPollStatus,
+  handleRunnerRevoke,
   handleRunnerPollInfo,
   handleListRunnerSubscriptions,
   handlePollCommands,
@@ -679,6 +680,7 @@ export default {
       "/mobile/sync": { GET: true },
       "/runners/register": { POST: true },
       "/runners/poll-info": { GET: true },
+      "/runners/revoke": { POST: true },
       "/commands/retry-ci": { POST: true },
       "/commands/retry-flaky": { POST: true, GET: true, DELETE: true },
     };
@@ -715,6 +717,9 @@ export default {
       }
       if (url.pathname === "/runners/poll-info" && request.method === "GET") {
         return handleRunnerPollInfo(env, userId);
+      }
+      if (url.pathname === "/runners/revoke" && request.method === "POST") {
+        return handleRunnerRevoke(env, userId);
       }
       if (url.pathname === "/commands/retry-ci" && request.method === "POST") {
         return handleSubmitCommand(request, env, userId);

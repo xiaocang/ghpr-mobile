@@ -10,7 +10,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.CallMerge
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Subscriptions
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -21,8 +28,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
@@ -41,11 +48,11 @@ import com.ghpr.app.ui.subscriptions.SubscriptionsScreen
 import com.ghpr.app.ui.subscriptions.SubscriptionsViewModel
 import com.ghpr.app.ui.theme.LocalNeoBrutalColors
 
-private sealed class Screen(val route: String, val label: String, val emoji: String) {
-    data object OpenPrs : Screen("open_prs", "PRs", "\uD83D\uDD00")           // 🔀
-    data object History : Screen("history", "History", "\uD83D\uDD14")         // 🔔
-    data object Subscriptions : Screen("subscriptions", "Subs", "\uD83D\uDCCB") // 📋
-    data object Settings : Screen("settings", "Settings", "⚙\uFE0F")          // ⚙️
+private sealed class Screen(val route: String, val label: String, val icon: ImageVector) {
+    data object OpenPrs : Screen("open_prs", "PRs", Icons.AutoMirrored.Filled.CallMerge)
+    data object History : Screen("history", "History", Icons.Filled.Notifications)
+    data object Subscriptions : Screen("subscriptions", "Subs", Icons.Filled.Subscriptions)
+    data object Settings : Screen("settings", "Settings", Icons.Filled.Settings)
 }
 
 private val screens = listOf(Screen.OpenPrs, Screen.History, Screen.Subscriptions, Screen.Settings)
@@ -62,7 +69,7 @@ fun AppNavGraph(container: AppContainer) {
                 screens.forEach { screen ->
                     val selected = currentDestination?.hierarchy?.any { it.route == screen.route } == true
                     NeoBottomBarItem(
-                        emoji = screen.emoji,
+                        icon = screen.icon,
                         label = screen.label,
                         selected = selected,
                         onClick = {
@@ -162,7 +169,7 @@ private fun NeoBottomBar(content: @Composable RowScope.() -> Unit) {
 
 @Composable
 private fun RowScope.NeoBottomBarItem(
-    emoji: String,
+    icon: ImageVector,
     label: String,
     selected: Boolean,
     onClick: () -> Unit,
@@ -191,9 +198,11 @@ private fun RowScope.NeoBottomBarItem(
                 .padding(horizontal = 16.dp, vertical = 4.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                text = emoji,
-                fontSize = 20.sp,
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                modifier = Modifier.size(24.dp),
+                tint = contentColor,
             )
         }
         Text(

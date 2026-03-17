@@ -4,11 +4,12 @@
       "WebFetch(domain:slock.ai)",
       "WebSearch",
       "Bash(curl:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(find:*)"
     ]
   },
+  "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
     "agentmux"
-  ],
-  "enableAllProjectMcpServers": true
+  ]
 }
