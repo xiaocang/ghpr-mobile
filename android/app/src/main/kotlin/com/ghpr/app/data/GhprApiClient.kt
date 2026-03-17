@@ -34,6 +34,12 @@ data class RetryFlakyJob(
 )
 data class RetryFlakyJobsResponse(val ok: Boolean, val jobs: List<RetryFlakyJob>)
 data class SubscriptionsResponse(val ok: Boolean, val subscriptions: List<String>)
+data class RegisterRunnerRequest(
+    val deviceId: String,
+    val pairingToken: String,
+    val githubLogin: String,
+)
+
 data class RunnerStatusResponse(
     val ok: Boolean,
     val deviceId: String? = null,
@@ -84,6 +90,9 @@ interface GhprApi {
         @Query("cursorDeliveryId") cursorDeliveryId: String = "",
         @Query("limit") limit: Int = 100,
     ): Response<SyncResponse>
+
+    @POST("runners/register")
+    suspend fun registerRunner(@Body body: RegisterRunnerRequest): Response<ApiResult>
 
     @GET("runners/poll-info")
     suspend fun runnerStatus(): Response<RunnerStatusResponse>

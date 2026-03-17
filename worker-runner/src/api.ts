@@ -12,13 +12,34 @@ type PollResponse = {
   commands: Command[];
 };
 
+function serverFetch(env: Env, path: string, init?: RequestInit): Promise<Response> {
+  return env.SERVER.fetch(new Request(`https://server${path}`, init));
+}
+
+export async function selfRegister(env: Env): Promise<void> {
+  const res = await serverFetch(env, "/runners/self-register", {
+    method: "POST",
+    headers: {
+      "x-github-token": env.GITHUB_TOKEN,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ deviceId: "worker-runner", pairingToken: env.RUNNER_TOKEN }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`self-register failed: HTTP ${res.status}: ${text}`);
+  }
+}
+
 export async function pollCommands(env: Env): Promise<Command[]> {
-  const res = await fetch(`${env.WORKER_URL}/runners/commands/poll`, {
+  const res = await serverFetch(env, "/runners/commands/poll", {
     headers: { "x-runner-token": env.RUNNER_TOKEN },
   });
 
   if (!res.ok) {
-    throw new Error(`poll failed: HTTP ${res.status}`);
+    const body = await res.text().catch(() => "");
+    throw new Error(`poll failed: HTTP ${res.status} body=${body}`);
   }
 
   const body = (await res.json()) as PollResponse;
@@ -31,17 +52,14 @@ export async function reportResult(
   status: string,
   result: unknown
 ): Promise<void> {
-  const res = await fetch(
-    `${env.WORKER_URL}/runners/commands/${commandId}/result`,
-    {
-      method: "POST",
-      headers: {
-        "x-runner-token": env.RUNNER_TOKEN,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({ status, result }),
-    }
-  );
+  const res = await serverFetch(env, `/runners/commands/${commandId}/result`, {
+    method: "POST",
+    headers: {
+      "x-runner-token": env.RUNNER_TOKEN,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ status, result }),
+  });
 
   if (!res.ok) {
     throw new Error(`report result failed: HTTP ${res.status}`);
@@ -57,7 +75,7 @@ type SubscriptionsResponse = {
 export async function fetchSubscriptions(
   env: Env
 ): Promise<{ subscriptions: string[]; notifLastModified: string | null }> {
-  const res = await fetch(`${env.WORKER_URL}/runners/subscriptions`, {
+  const res = await serverFetch(env, "/runners/subscriptions", {
     headers: { "x-runner-token": env.RUNNER_TOKEN },
   });
 
@@ -89,7 +107,7 @@ export async function syncToServer(
   notifications: SyncNotification[],
   notifLastModified: string | null
 ): Promise<void> {
-  const res = await fetch(`${env.WORKER_URL}/runners/sync`, {
+  const res = await serverFetch(env, "/runners/sync", {
     method: "POST",
     headers: {
       "x-runner-token": env.RUNNER_TOKEN,
@@ -108,7 +126,7 @@ export async function reportPollStatus(
   status: string,
   error?: string
 ): Promise<void> {
-  const res = await fetch(`${env.WORKER_URL}/runners/poll-status`, {
+  const res = await serverFetch(env, "/runners/poll-status", {
     method: "POST",
     headers: {
       "x-runner-token": env.RUNNER_TOKEN,

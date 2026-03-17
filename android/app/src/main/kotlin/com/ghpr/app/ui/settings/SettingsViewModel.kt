@@ -9,6 +9,7 @@ import com.ghpr.app.data.DataStoreNotificationSettingsStore
 import com.ghpr.app.data.DataStorePollingModeStore
 import com.ghpr.app.data.DataStoreRefreshSettingsStore
 import com.ghpr.app.data.GhprApiClient
+import com.ghpr.app.data.RegisterRunnerRequest
 import com.ghpr.app.data.RunnerStatusResponse
 import com.ghpr.app.data.PollingMode
 import com.ghpr.app.data.PollingScheduler
@@ -35,6 +36,8 @@ data class SettingsUiState(
     val runnerPollingError: String? = null,
     val runnerLastPollAt: String? = null,
     val runnerLastSeenAt: String? = null,
+    val runnerPairingToken: String? = null,
+    val runnerRegistering: Boolean = false,
 )
 
 class SettingsViewModel(
@@ -55,6 +58,8 @@ class SettingsViewModel(
 
     private val _showRunnerConfirmDialog = MutableStateFlow(false)
     private val runnerStatus = MutableStateFlow<RunnerStatusResponse?>(null)
+    private val _runnerPairingToken = MutableStateFlow<String?>(null)
+    private val _runnerRegistering = MutableStateFlow(false)
 
     init {
         viewModelScope.launch {
@@ -73,6 +78,8 @@ class SettingsViewModel(
         pollingModeStore.pollingMode,
         _showRunnerConfirmDialog,
         runnerStatus,
+        _runnerPairingToken,
+        _runnerRegistering,
     ) { values ->
         val authState = values[0] as GitHubAuthState
         val interval = values[1] as Int
@@ -80,6 +87,8 @@ class SettingsViewModel(
         val pollMode = values[3] as PollingMode
         val showDialog = values[4] as Boolean
         val rStatus = values[5] as RunnerStatusResponse?
+        val pairingToken = values[6] as String?
+        val registering = values[7] as Boolean
         SettingsUiState(
             gitHubAuthState = authState,
             refreshIntervalMinutes = interval,
@@ -103,6 +112,8 @@ class SettingsViewModel(
             runnerPollingError = rStatus?.lastPollError,
             runnerLastPollAt = rStatus?.lastPollAt,
             runnerLastSeenAt = rStatus?.lastSeenAt,
+            runnerPairingToken = pairingToken,
+            runnerRegistering = registering,
         )
     }.stateIn(
         viewModelScope,
@@ -178,6 +189,37 @@ class SettingsViewModel(
                 }
             }
         }
+    }
+
+    fun registerRunner() {
+        val authState = gitHubOAuthManager.authState.value
+        val login = (authState as? GitHubAuthState.SignedIn)?.login ?: return
+        val deviceId = firebaseAuthManager.currentUserId ?: return
+
+        viewModelScope.launch {
+            _runnerRegistering.value = true
+            val token = generatePairingToken()
+            runCatching {
+                apiClient.api.registerRunner(
+                    RegisterRunnerRequest(
+                        deviceId = deviceId,
+                        pairingToken = token,
+                        githubLogin = login,
+                    )
+                )
+            }.onSuccess { response ->
+                if (response.isSuccessful) {
+                    _runnerPairingToken.value = token
+                    refreshRunnerPollingStatus()
+                }
+            }
+            _runnerRegistering.value = false
+        }
+    }
+
+    private fun generatePairingToken(): String {
+        val chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+        return (1..8).map { chars.random() }.joinToString("")
     }
 
     fun refreshRunnerPollingStatus() {

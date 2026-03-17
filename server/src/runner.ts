@@ -118,6 +118,42 @@ export async function requireRunnerAuth(
   return { runner };
 }
 
+async function upsertRunner(
+  env: Env,
+  userId: string,
+  deviceId: string,
+  pairingToken: string,
+  label: string | null,
+  githubLogin: string
+): Promise<Response> {
+  const tokenHash = await hashPairingToken(pairingToken);
+
+  // Prevent runner hijacking: reject re-registration by a different user
+  const existing = await env.DB.prepare(
+    "SELECT user_id FROM runners WHERE device_id = ? LIMIT 1"
+  )
+    .bind(deviceId)
+    .first<{ user_id: string }>();
+
+  if (existing && existing.user_id !== userId) {
+    return jsonResponse({ error: "device already registered to another user" }, 403);
+  }
+
+  await env.DB.prepare(
+    `INSERT INTO runners (device_id, pairing_token_hash, label, user_id, github_login, created_at)
+     VALUES (?, ?, ?, ?, ?, datetime('now'))
+     ON CONFLICT(device_id) DO UPDATE SET
+       pairing_token_hash = excluded.pairing_token_hash,
+       label = excluded.label,
+       user_id = excluded.user_id,
+       github_login = excluded.github_login`
+  )
+    .bind(deviceId, tokenHash, label, userId, githubLogin)
+    .run();
+
+  return jsonResponse({ ok: true });
+}
+
 export async function handleRunnerRegister(
   request: Request,
   env: Env,
@@ -143,29 +179,67 @@ export async function handleRunnerRegister(
     return jsonResponse({ error: "githubLogin is required" }, 400);
   }
 
-  const tokenHash = await hashPairingToken(pairingToken);
+  return upsertRunner(env, userId, deviceId, pairingToken, label, githubLogin);
+}
 
-  // Prevent runner hijacking: reject re-registration by a different user
-  const existing = await env.DB.prepare(
-    "SELECT user_id FROM runners WHERE device_id = ? LIMIT 1"
-  )
-    .bind(deviceId)
-    .first<{ user_id: string }>();
+type SelfRegisterBody = {
+  deviceId?: string;
+  pairingToken?: string;
+  label?: string;
+};
 
-  if (existing && existing.user_id !== userId) {
-    return jsonResponse({ error: "device already registered to another user" }, 403);
+export async function handleRunnerSelfRegister(
+  request: Request,
+  env: Env
+): Promise<Response> {
+  const body = await parseJsonBody<SelfRegisterBody>(request);
+  if (!body) {
+    return jsonResponse({ error: "invalid json" }, 400);
   }
 
-  await env.DB.prepare(
-    `INSERT INTO runners (device_id, pairing_token_hash, label, user_id, github_login, created_at)
-     VALUES (?, ?, ?, ?, ?, datetime('now'))
-     ON CONFLICT(device_id) DO UPDATE SET
-       pairing_token_hash = excluded.pairing_token_hash,
-       label = excluded.label,
-       user_id = excluded.user_id,
-       github_login = excluded.github_login`
+  const pairingToken = body.pairingToken?.trim() ?? "";
+  if (!pairingToken) {
+    return jsonResponse({ error: "pairingToken is required" }, 400);
+  }
+
+  // Look up runner by pairing token hash (app must register it first)
+  const tokenHash = await hashPairingToken(pairingToken);
+  const runner = await env.DB.prepare(
+    "SELECT * FROM runners WHERE pairing_token_hash = ? LIMIT 1"
   )
-    .bind(deviceId, tokenHash, label, userId, githubLogin)
+    .bind(tokenHash)
+    .first<RunnerRow>();
+
+  if (!runner) {
+    return jsonResponse({ error: "register runner from the app first" }, 401);
+  }
+
+  // Update device_id, label, and github_login if provided
+  const deviceId = body.deviceId?.trim() || runner.device_id;
+  const label = body.label?.trim() || runner.label;
+
+  const githubToken = request.headers.get("x-github-token")?.trim() ?? "";
+  let githubLogin = runner.github_login ?? "";
+
+  if (githubToken) {
+    const ghRes = await fetch("https://api.github.com/user", {
+      headers: {
+        Authorization: `Bearer ${githubToken}`,
+        "User-Agent": "ghpr-server",
+      },
+    });
+    if (ghRes.ok) {
+      const ghUser = (await ghRes.json()) as { login: string };
+      githubLogin = ghUser.login.toLowerCase();
+    }
+  }
+
+  // Update runner fields
+  await env.DB.prepare(
+    `UPDATE runners SET device_id = ?, label = ?, github_login = ?, last_seen_at = datetime('now')
+     WHERE id = ?`
+  )
+    .bind(deviceId, label, githubLogin, runner.id)
     .run();
 
   return jsonResponse({ ok: true });

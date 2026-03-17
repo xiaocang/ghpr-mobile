@@ -10,6 +10,7 @@ import { resolveDeviceTokensForPr } from "./shared";
 import {
   requireRunnerAuth,
   handleRunnerRegister,
+  handleRunnerSelfRegister,
   handleRunnerStatus,
   handleRunnerUnregister,
   handleRunnerSync,
@@ -665,6 +666,10 @@ export default {
 
     if (request.method === "POST" && url.pathname === "/github/webhook") {
       return handleWebhook(request, env);
+    }
+
+    if (request.method === "POST" && url.pathname === "/runners/self-register") {
+      return handleRunnerSelfRegister(request, env);
     }
 
     const protectedRoutes: Record<string, Record<string, true>> = {

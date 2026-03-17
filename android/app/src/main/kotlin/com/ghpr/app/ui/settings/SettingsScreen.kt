@@ -168,6 +168,7 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
 
             SectionHeader("Runner Polling")
             SettingsCard {
+                val clipboardManager = LocalClipboardManager.current
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     InfoRow("Status", state.runnerPollingStatus)
                     InfoRow("Last poll", state.runnerLastPollAt ?: "N/A")
@@ -180,6 +181,41 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                             color = MaterialTheme.colorScheme.error,
                         )
                     }
+
+                    val pairingToken = state.runnerPairingToken
+                    if (pairingToken != null) {
+                        Text(
+                            text = "Runner token:",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(
+                                text = pairingToken,
+                                style = MonoStyle.code,
+                            )
+                            IconButton(onClick = {
+                                clipboardManager.setText(AnnotatedString(pairingToken))
+                            }) {
+                                Icon(Icons.Default.ContentCopy, contentDescription = "Copy token")
+                            }
+                        }
+                        Text(
+                            text = "Copy this token and set it as RUNNER_TOKEN in your worker-runner configuration.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else if (state.runnerPollingStatus == "No runner registered") {
+                        NeoButton(
+                            onClick = viewModel::registerRunner,
+                            enabled = !state.runnerRegistering,
+                        ) {
+                            Text(if (state.runnerRegistering) "Registering..." else "Register Runner")
+                        }
+                    }
+
                     NeoButton(onClick = viewModel::refreshRunnerPollingStatus) {
                         Text("Refresh status")
                     }

@@ -5,8 +5,12 @@ compatibility_date = "2026-03-01"
 [triggers]
 crons = ["*/5 * * * *"]
 
+[[services]]
+binding = "SERVER"
+service = "ghpr-server"
+
 [vars]
-WORKER_URL = "https://ghpr-server.<account>.workers.dev"
+WORKER_URL = "https://ghpr-server.xiaocang.workers.dev"
 
 # Secrets (set via `wrangler secret put`):
 # GITHUB_TOKEN - GitHub PAT with actions + repo scope
