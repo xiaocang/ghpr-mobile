@@ -170,7 +170,7 @@ class GitHubOAuthManager(context: Context) {
                 .post(body)
                 .build()
 
-            val payload = withContext(Dispatchers.IO) {
+            val payload: String? = withContext(Dispatchers.IO) {
                 try {
                     client.newCall(request).execute().use { response ->
                         val raw = response.body?.string().orEmpty()
@@ -188,9 +188,11 @@ class GitHubOAuthManager(context: Context) {
                             pollingError = e.message ?: "Network error",
                         )
                     }
-                    continue
+                    null
                 }
             }
+
+            if (payload == null) continue
 
             // Clear polling error on successful response
             val current = _authState.value
