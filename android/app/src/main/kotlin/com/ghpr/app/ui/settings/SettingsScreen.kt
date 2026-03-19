@@ -379,6 +379,13 @@ private fun GitHubAccountSection(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Open GitHub")
                 }
+                if (authState.pollingError != null) {
+                    Text(
+                        text = "Polling error: ${authState.pollingError} (retrying…)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
             }
         }
 

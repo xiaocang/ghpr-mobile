@@ -20,6 +20,7 @@ sealed interface GitHubAuthState {
     data class Authenticating(
         val userCode: String,
         val verificationUri: String,
+        val pollingError: String? = null,
     ) : GitHubAuthState
     data class Error(
         val message: String,
@@ -180,9 +181,21 @@ class GitHubOAuthManager(context: Context) {
                     }
                 } catch (e: GitHubAuthException) {
                     throw e
-                } catch (_: Exception) {
-                    throw GitHubAuthException("GitHub sign-in polling failed due to a network error.")
+                } catch (e: Exception) {
+                    val current = _authState.value
+                    if (current is GitHubAuthState.Authenticating) {
+                        _authState.value = current.copy(
+                            pollingError = e.message ?: "Network error",
+                        )
+                    }
+                    continue
                 }
+            }
+
+            // Clear polling error on successful response
+            val current = _authState.value
+            if (current is GitHubAuthState.Authenticating && current.pollingError != null) {
+                _authState.value = current.copy(pollingError = null)
             }
 
             val json = JSONObject(payload)
