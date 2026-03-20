@@ -32,6 +32,8 @@ data class OpenPrsUiState(
     val retryFlakySubmitting: Set<String> = emptySet(),
     /** PR keys currently submitting a retry-ci request */
     val retryCiSubmitting: Set<String> = emptySet(),
+    /** Currently expanded PR key (null = none expanded) */
+    val expandedPrKey: String? = null,
 )
 
 class OpenPrsViewModel(
@@ -236,6 +238,13 @@ class OpenPrsViewModel(
                 // Silently ignore — retry job status is best-effort
             }
         }
+    }
+
+    fun toggleExpanded(pr: OpenPullRequest) {
+        val key = prKey(pr)
+        _state.value = _state.value.copy(
+            expandedPrKey = if (_state.value.expandedPrKey == key) null else key,
+        )
     }
 
     fun clearRetryFlakyMessage() {

@@ -5,6 +5,24 @@ enum class PrCategory {
     REVIEW_REQUESTED,
 }
 
+data class CIWorkflowInfo(
+    val name: String,
+    val isWorkflow: Boolean,
+    val successCount: Int,
+    val failureCount: Int,
+    val pendingCount: Int,
+) {
+    val totalCount: Int get() = successCount + failureCount + pendingCount
+
+    val status: String
+        get() = when {
+            failureCount > 0 -> "FAILURE"
+            pendingCount > 0 -> "PENDING"
+            successCount > 0 -> "SUCCESS"
+            else -> "EXPECTED"
+        }
+}
+
 data class OpenPullRequest(
     val number: Int,
     val title: String,
@@ -20,4 +38,9 @@ data class OpenPullRequest(
     val approvalCount: Int = 0,
     val unresolvedCount: Int = 0,
     val category: PrCategory = PrCategory.AUTHORED,
+    val checkSuccessCount: Int = 0,
+    val checkFailureCount: Int = 0,
+    val checkPendingCount: Int = 0,
+    val ciWorkflows: List<CIWorkflowInfo> = emptyList(),
+    val ciIsRunning: Boolean = false,
 )

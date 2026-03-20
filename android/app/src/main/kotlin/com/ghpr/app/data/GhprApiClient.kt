@@ -29,9 +29,13 @@ data class RetryFlakyJob(
     val repoFullName: String,
     val prNumber: Int,
     val retriesRemaining: Int,
+    val workflowAttempts: Map<String, Int> = emptyMap(),
     val status: String,
+    val createdAt: String? = null,
     val updatedAt: String? = null,
-)
+) {
+    val totalRetries: Int get() = 3
+}
 data class RetryFlakyJobsResponse(val ok: Boolean, val jobs: List<RetryFlakyJob>)
 data class SubscriptionsResponse(val ok: Boolean, val subscriptions: List<String>)
 data class RegisterRunnerRequest(

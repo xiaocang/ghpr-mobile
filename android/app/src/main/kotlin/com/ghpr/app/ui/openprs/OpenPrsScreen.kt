@@ -2,7 +2,10 @@ package com.ghpr.app.ui.openprs
 
 import android.content.Intent
 import androidx.core.net.toUri
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.clickable
@@ -10,13 +13,17 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -25,6 +32,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -51,6 +59,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import com.ghpr.app.data.CIWorkflowInfo
 import com.ghpr.app.data.OpenPullRequest
 import com.ghpr.app.data.RetryFlakyJob
 import com.ghpr.app.data.SsoAuthorizationRequired
@@ -138,33 +147,82 @@ fun OpenPrsScreen(viewModel: OpenPrsViewModel) {
                         }
                         if (state.authoredPrs.isNotEmpty()) {
                             item { SectionHeader("My PRs", state.authoredPrs.size) }
-                            items(state.authoredPrs) { pr ->
+                            items(
+                                state.authoredPrs,
+                                key = { OpenPrsViewModel.prKey(it) },
+                            ) { pr ->
                                 val key = OpenPrsViewModel.prKey(pr)
                                 val job = state.retryFlakyJobs[key]
                                 val isRetrySubmitting = state.retryFlakySubmitting.contains(key)
                                 val isCiSubmitting = state.retryCiSubmitting.contains(key)
                                 val hasActiveJob = job != null && job.status == "active"
                                 val isCiFailure = pr.ciState?.uppercase() in listOf("FAILURE", "ERROR")
-                                val swipeEnabled = isCiFailure && !isRetrySubmitting && !isCiSubmitting && !hasActiveJob
+                                val isExpanded = state.expandedPrKey == key
+                                val swipeEnabled = isCiFailure && !isRetrySubmitting && !isCiSubmitting && !hasActiveJob && !isExpanded
                                 SwipeRevealBox(
                                     enabled = swipeEnabled,
                                     onRetryCi = { viewModel.retryCi(pr) },
                                     onRetryFlaky = { viewModel.retryFlaky(pr) },
                                 ) {
-                                    OpenPrCard(
-                                        pr = pr,
-                                        showReviewMetrics = true,
-                                        onCancelRetryFlaky = { viewModel.cancelRetryFlaky(pr) },
-                                        retryFlakyJob = job,
-                                        isRetrySubmitting = isRetrySubmitting,
-                                    )
+                                    Column {
+                                        OpenPrCard(
+                                            pr = pr,
+                                            showReviewMetrics = true,
+                                            isExpanded = isExpanded,
+                                            onToggleExpand = { viewModel.toggleExpanded(pr) },
+                                            retryFlakyJob = job,
+                                            isRetrySubmitting = isRetrySubmitting,
+                                        )
+                                        AnimatedVisibility(
+                                            visible = isExpanded,
+                                            enter = expandVertically(),
+                                            exit = shrinkVertically(),
+                                        ) {
+                                            PrExpandedDetail(
+                                                pr = pr,
+                                                retryFlakyJob = job,
+                                                isRetrySubmitting = isRetrySubmitting,
+                                                isCiSubmitting = isCiSubmitting,
+                                                onRetryCi = { viewModel.retryCi(pr) },
+                                                onRetryFlaky = { viewModel.retryFlaky(pr) },
+                                                onCancelRetryFlaky = { viewModel.cancelRetryFlaky(pr) },
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
                         if (state.reviewRequestedPrs.isNotEmpty()) {
                             item { SectionHeader("Review Requested", state.reviewRequestedPrs.size) }
-                            items(state.reviewRequestedPrs) { pr ->
-                                OpenPrCard(pr, showReviewMetrics = false)
+                            items(
+                                state.reviewRequestedPrs,
+                                key = { OpenPrsViewModel.prKey(it) },
+                            ) { pr ->
+                                val key = OpenPrsViewModel.prKey(pr)
+                                val isExpanded = state.expandedPrKey == key
+                                Column {
+                                    OpenPrCard(
+                                        pr = pr,
+                                        showReviewMetrics = false,
+                                        isExpanded = isExpanded,
+                                        onToggleExpand = { viewModel.toggleExpanded(pr) },
+                                    )
+                                    AnimatedVisibility(
+                                        visible = isExpanded,
+                                        enter = expandVertically(),
+                                        exit = shrinkVertically(),
+                                    ) {
+                                        PrExpandedDetail(
+                                            pr = pr,
+                                            retryFlakyJob = null,
+                                            isRetrySubmitting = false,
+                                            isCiSubmitting = false,
+                                            onRetryCi = null,
+                                            onRetryFlaky = null,
+                                            onCancelRetryFlaky = null,
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -364,11 +422,11 @@ private fun SwipeRevealBox(
 private fun OpenPrCard(
     pr: OpenPullRequest,
     showReviewMetrics: Boolean,
-    onCancelRetryFlaky: (() -> Unit)? = null,
+    isExpanded: Boolean = false,
+    onToggleExpand: (() -> Unit)? = null,
     retryFlakyJob: RetryFlakyJob? = null,
     isRetrySubmitting: Boolean = false,
 ) {
-    val context = LocalContext.current
     val statusColors = LocalGhprStatusColors.current
     val hasActiveJob = retryFlakyJob != null && retryFlakyJob.status == "active"
 
@@ -376,9 +434,7 @@ private fun OpenPrCard(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp)
-            .clickable {
-                context.startActivity(Intent(Intent.ACTION_VIEW, pr.url.toUri()))
-            },
+            .clickable { onToggleExpand?.invoke() },
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
             Text(
@@ -415,8 +471,18 @@ private fun OpenPrCard(
                             "FAILURE", "ERROR" -> statusColors.closed
                             else -> statusColors.pending
                         }
-                        StatusBadge(text = ci.lowercase(), color = ciColor)
-                        if (ci.uppercase() in listOf("FAILURE", "ERROR")) {
+                        // Show compact workflow count format
+                        val ciText = ciStatusText(pr)
+                        StatusBadge(text = ciText, color = ciColor)
+                        if (pr.ciIsRunning) {
+                            CircularProgressIndicator(
+                                modifier = Modifier
+                                    .padding(start = 2.dp)
+                                    .size(16.dp),
+                                strokeWidth = 2.dp,
+                            )
+                        }
+                        if (!isExpanded && ci.uppercase() in listOf("FAILURE", "ERROR")) {
                             when {
                                 isRetrySubmitting -> {
                                     CircularProgressIndicator(
@@ -429,19 +495,9 @@ private fun OpenPrCard(
                                 }
                                 hasActiveJob -> {
                                     StatusBadge(
-                                        text = "retrying (${retryFlakyJob!!.retriesRemaining} left)",
+                                        text = "${retryFlakyJob!!.retriesRemaining}/${retryFlakyJob.totalRetries}",
                                         color = statusColors.pending,
                                     )
-                                    IconButton(
-                                        onClick = { onCancelRetryFlaky?.invoke() },
-                                        modifier = Modifier.padding(start = 2.dp),
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Close,
-                                            contentDescription = "Cancel retry",
-                                            tint = statusColors.closed,
-                                        )
-                                    }
                                 }
                             }
                         }
@@ -469,6 +525,189 @@ private fun OpenPrCard(
                     )
                 }
             }
+        }
+    }
+}
+
+private fun ciStatusText(pr: OpenPullRequest): String {
+    val ci = pr.ciState?.uppercase() ?: return "ci"
+    val workflows = pr.ciWorkflows
+    if (workflows.isEmpty()) return ci.lowercase()
+    val totalWf = workflows.size
+    return when (ci) {
+        "FAILURE", "ERROR" -> {
+            val failedWf = workflows.count { it.failureCount > 0 }
+            val totalFailedTasks = workflows.sumOf { it.failureCount }
+            "${failedWf}/${totalWf}wf\u00B7${totalFailedTasks}"
+        }
+        "PENDING" -> {
+            val doneWf = workflows.count { it.status == "SUCCESS" || it.status == "FAILURE" }
+            "${doneWf}/${totalWf}wf"
+        }
+        "SUCCESS" -> "${totalWf}wf"
+        else -> ci.lowercase()
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PrExpandedDetail(
+    pr: OpenPullRequest,
+    retryFlakyJob: RetryFlakyJob?,
+    isRetrySubmitting: Boolean,
+    isCiSubmitting: Boolean,
+    onRetryCi: (() -> Unit)?,
+    onRetryFlaky: (() -> Unit)?,
+    onCancelRetryFlaky: (() -> Unit)?,
+) {
+    val context = LocalContext.current
+    val statusColors = LocalGhprStatusColors.current
+    val hasActiveJob = retryFlakyJob != null && retryFlakyJob.status == "active"
+    val isCiFailure = pr.ciState?.uppercase() in listOf("FAILURE", "ERROR")
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 32.dp, end = 16.dp, bottom = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        // Workflow breakdown
+        if (pr.ciWorkflows.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                pr.ciWorkflows.forEach { wf ->
+                    WorkflowStatusRow(wf)
+                }
+            }
+        } else if (pr.ciState != null) {
+            Text(
+                text = "No workflow details",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        // Retry job info
+        if (retryFlakyJob != null) {
+            val statusText = when (retryFlakyJob.status) {
+                "active" -> "Retrying: ${retryFlakyJob.retriesRemaining}/${retryFlakyJob.totalRetries} remaining"
+                "completed" -> "Retry completed"
+                "exhausted" -> "Retries exhausted"
+                "cancelled" -> "Retry cancelled"
+                else -> "Retry: ${retryFlakyJob.status}"
+            }
+            val statusColor = when (retryFlakyJob.status) {
+                "active" -> statusColors.pending
+                "completed" -> statusColors.merged
+                else -> statusColors.closed
+            }
+            Text(
+                text = statusText,
+                style = MonoStyle.codeSmall,
+                color = statusColor,
+            )
+            retryFlakyJob.updatedAt?.let { updatedAt ->
+                Text(
+                    text = "Last retry: $updatedAt",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
+        // Action buttons
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            NeoButton(
+                onClick = {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, pr.url.toUri()))
+                },
+                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                contentColor = MaterialTheme.colorScheme.onSurface,
+            ) {
+                Icon(
+                    Icons.Default.OpenInBrowser,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Open PR", style = MaterialTheme.typography.labelMedium)
+            }
+            if (onRetryCi != null && isCiFailure) {
+                NeoButton(
+                    onClick = onRetryCi,
+                    enabled = !isCiSubmitting && !isRetrySubmitting,
+                    containerColor = Color(0xFF3B82F6),
+                    contentColor = Color.White,
+                ) {
+                    Text("Retry", style = MaterialTheme.typography.labelMedium)
+                }
+            }
+            if (onRetryFlaky != null && isCiFailure) {
+                NeoButton(
+                    onClick = onRetryFlaky,
+                    enabled = !isRetrySubmitting && !isCiSubmitting && !hasActiveJob,
+                    containerColor = Color(0xFFF59E0B),
+                    contentColor = Color.White,
+                ) {
+                    Text("Retry x3", style = MaterialTheme.typography.labelMedium)
+                }
+            }
+            if (hasActiveJob && onCancelRetryFlaky != null) {
+                NeoButton(
+                    onClick = onCancelRetryFlaky,
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                ) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Cancel", style = MaterialTheme.typography.labelMedium)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WorkflowStatusRow(wf: CIWorkflowInfo) {
+    val statusColors = LocalGhprStatusColors.current
+    val color = when {
+        wf.failureCount > 0 -> statusColors.closed
+        wf.pendingCount > 0 -> statusColors.pending
+        else -> statusColors.merged
+    }
+    val statusText = when {
+        wf.failureCount > 0 -> "${wf.failureCount} failed"
+        wf.pendingCount > 0 -> "${wf.pendingCount} pending"
+        else -> "${wf.successCount} passed"
+    }
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            text = wf.name,
+            style = MonoStyle.codeSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+        )
+        StatusBadge(
+            text = statusText,
+            color = color,
+        )
+        if (wf.totalCount > 1) {
+            Text(
+                text = "${wf.successCount}/${wf.totalCount}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

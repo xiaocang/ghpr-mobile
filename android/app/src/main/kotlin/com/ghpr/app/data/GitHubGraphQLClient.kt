@@ -103,7 +103,26 @@ class GitHubGraphQLClient(
             commits(last: 1) {
                 nodes {
                     commit {
-                        statusCheckRollup { state }
+                        statusCheckRollup {
+                            state
+                            contexts(first: 100) {
+                                nodes {
+                                    ... on CheckRun {
+                                        name
+                                        conclusion
+                                        checkSuite {
+                                            workflowRun {
+                                                workflow { name }
+                                            }
+                                        }
+                                    }
+                                    ... on StatusContext {
+                                        context
+                                        state
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -215,11 +234,12 @@ class GitHubGraphQLClient(
             val repo = node.optJSONObject("repository")
             val commits = node.optJSONObject("commits")
                 ?.optJSONArray("nodes")
-            val ciState = commits
+            val statusCheckRollup = commits
                 ?.optJSONObject(0)
                 ?.optJSONObject("commit")
                 ?.optJSONObject("statusCheckRollup")
-                ?.optString("state")
+            val ciState = statusCheckRollup?.optString("state")
+            val ciParsed = parseCIContexts(statusCheckRollup)
             val repoOwner = repo?.optJSONObject("owner")?.optString("login", "").orEmpty()
             val repoName = repo?.optString("name", "").orEmpty()
             val approvalCount = node.optJSONObject("latestReviews")
@@ -262,9 +282,100 @@ class GitHubGraphQLClient(
                     approvalCount = approvalCount,
                     unresolvedCount = unresolvedCount,
                     category = category,
+                    checkSuccessCount = ciParsed.successCount,
+                    checkFailureCount = ciParsed.failureCount,
+                    checkPendingCount = ciParsed.pendingCount,
+                    ciWorkflows = ciParsed.workflows,
+                    ciIsRunning = ciParsed.isRunning,
                 ),
             )
         }
+    }
+
+    private data class CIParsed(
+        val successCount: Int,
+        val failureCount: Int,
+        val pendingCount: Int,
+        val isRunning: Boolean,
+        val workflows: List<CIWorkflowInfo>,
+    )
+
+    private fun parseCIContexts(rollup: JSONObject?): CIParsed {
+        val empty = CIParsed(0, 0, 0, false, emptyList())
+        val contextsNodes = rollup
+            ?.optJSONObject("contexts")
+            ?.optJSONArray("nodes")
+            ?: return empty
+
+        var successCount = 0
+        var failureCount = 0
+        var pendingCount = 0
+        var isRunning = false
+        // workflow name -> mutable counts
+        val workflowMap = mutableMapOf<String, IntArray>() // [success, failure, pending]
+        val workflowIsWf = mutableMapOf<String, Boolean>()
+
+        for (i in 0 until contextsNodes.length()) {
+            val ctx = contextsNodes.optJSONObject(i) ?: continue
+
+            if (ctx.has("name")) {
+                // CheckRun
+                val conclusion = ctx.optString("conclusion", "").ifBlank { null }
+                val workflowName = ctx.optJSONObject("checkSuite")
+                    ?.optJSONObject("workflowRun")
+                    ?.optJSONObject("workflow")
+                    ?.optString("name")
+                val groupName = workflowName ?: ctx.optString("name", "check")
+                val isWf = workflowName != null
+
+                val counts = workflowMap.getOrPut(groupName) { intArrayOf(0, 0, 0) }
+                workflowIsWf.putIfAbsent(groupName, isWf)
+
+                when (conclusion?.uppercase()) {
+                    "SUCCESS", "NEUTRAL", "SKIPPED" -> {
+                        successCount++
+                        counts[0]++
+                    }
+                    "FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE" -> {
+                        failureCount++
+                        counts[1]++
+                    }
+                    else -> {
+                        // null conclusion = in progress or queued
+                        pendingCount++
+                        counts[2]++
+                        isRunning = true
+                    }
+                }
+            } else if (ctx.has("context")) {
+                // StatusContext
+                val state = ctx.optString("state", "").uppercase()
+                val contextName = ctx.optString("context", "status")
+                val counts = workflowMap.getOrPut(contextName) { intArrayOf(0, 0, 0) }
+                workflowIsWf.putIfAbsent(contextName, false)
+
+                when (state) {
+                    "SUCCESS" -> { successCount++; counts[0]++ }
+                    "FAILURE", "ERROR" -> { failureCount++; counts[1]++ }
+                    else -> { pendingCount++; counts[2]++; isRunning = true }
+                }
+            }
+        }
+
+        val workflows = workflowMap.map { (name, counts) ->
+            CIWorkflowInfo(
+                name = name,
+                isWorkflow = workflowIsWf[name] ?: false,
+                successCount = counts[0],
+                failureCount = counts[1],
+                pendingCount = counts[2],
+            )
+        }.sortedWith(compareBy(
+            { if (it.failureCount > 0) 0 else if (it.pendingCount > 0) 1 else 2 },
+            { it.name },
+        ))
+
+        return CIParsed(successCount, failureCount, pendingCount, isRunning, workflows)
     }
 
     private fun countUnresolvedThreads(nodes: JSONArray?): Int {
