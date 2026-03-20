@@ -22,6 +22,7 @@ internal data class CIParsed(
     val pendingCount: Int,
     val isRunning: Boolean,
     val workflows: List<CIWorkflowInfo>,
+    val truncated: Boolean = false,
 )
 
 data class FetchOpenPrsResult(
@@ -114,6 +115,7 @@ class GitHubGraphQLClient(
                         statusCheckRollup {
                             state
                             contexts(first: 100) {
+                                pageInfo { hasNextPage }
                                 nodes {
                                     ... on CheckRun {
                                         name
@@ -295,6 +297,7 @@ class GitHubGraphQLClient(
                     checkPendingCount = ciParsed.pendingCount,
                     ciWorkflows = ciParsed.workflows,
                     ciIsRunning = ciParsed.isRunning,
+                    ciTruncated = ciParsed.truncated,
                 ),
             )
         }
@@ -435,10 +438,10 @@ class GitHubGraphQLClient(
 
 internal fun parseCIContexts(rollup: JSONObject?): CIParsed {
     val empty = CIParsed(0, 0, 0, false, emptyList())
-    val contextsNodes = rollup
-        ?.optJSONObject("contexts")
-        ?.optJSONArray("nodes")
-        ?: return empty
+    val contexts = rollup?.optJSONObject("contexts") ?: return empty
+    val contextsNodes = contexts.optJSONArray("nodes") ?: return empty
+    val truncated = contexts.optJSONObject("pageInfo")
+        ?.optBoolean("hasNextPage", false) ?: false
 
     var successCount = 0
     var failureCount = 0
@@ -461,7 +464,7 @@ internal fun parseCIContexts(rollup: JSONObject?): CIParsed {
             val isWf = workflowName != null
 
             val counts = workflowMap.getOrPut(groupName) { intArrayOf(0, 0, 0) }
-            workflowIsWf.putIfAbsent(groupName, isWf)
+            workflowIsWf[groupName] = (workflowIsWf[groupName] == true) || isWf
 
             when (conclusion?.uppercase()) {
                 "SUCCESS", "NEUTRAL", "SKIPPED" -> {
@@ -506,5 +509,5 @@ internal fun parseCIContexts(rollup: JSONObject?): CIParsed {
         { it.name },
     ))
 
-    return CIParsed(successCount, failureCount, pendingCount, isRunning, workflows)
+    return CIParsed(successCount, failureCount, pendingCount, isRunning, workflows, truncated)
 }

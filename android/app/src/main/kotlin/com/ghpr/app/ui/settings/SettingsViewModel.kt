@@ -186,6 +186,7 @@ class SettingsViewModel(
             pollingScheduler.cancelClientPolling()
             pollingModeStore.setPollingMode(PollingMode.OFF)
             runnerStatus.value = null
+            _retryJobs.value = emptyList()
         }
         gitHubOAuthManager.signOut()
     }

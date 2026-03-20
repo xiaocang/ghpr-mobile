@@ -549,17 +549,18 @@ internal fun ciStatusText(pr: OpenPullRequest): String {
     val workflows = pr.ciWorkflows
     if (workflows.isEmpty()) return ci.lowercase()
     val totalWf = workflows.size
+    val suffix = if (pr.ciTruncated) "ci+" else "ci"
     return when (ci) {
         "FAILURE", "ERROR" -> {
             val failedWf = workflows.count { it.failureCount > 0 }
             val totalFailedTasks = workflows.sumOf { it.failureCount }
-            "${failedWf}/${totalWf}wf\u00B7${totalFailedTasks}"
+            "${failedWf}/${totalWf}${suffix}\u00B7${totalFailedTasks}"
         }
         "PENDING" -> {
             val doneWf = workflows.count { it.status == "SUCCESS" || it.status == "FAILURE" }
-            "${doneWf}/${totalWf}wf"
+            "${doneWf}/${totalWf}${suffix}"
         }
-        "SUCCESS" -> "${totalWf}wf"
+        "SUCCESS" -> "${totalWf}${suffix}"
         else -> ci.lowercase()
     }
 }
@@ -579,7 +580,6 @@ private fun PrExpandedDetail(
     val neo = LocalNeoBrutalColors.current
     val hasActiveJob = retryFlakyJob != null && retryFlakyJob.status == "active"
     val isCiFailure = pr.ciState?.uppercase() in listOf("FAILURE", "ERROR")
-    val failedWorkflows = pr.ciWorkflows.filter { it.failureCount > 0 }
     val borderColor = neo.border.copy(alpha = 0.5f)
     val shallowBorderColor = neo.border.copy(alpha = 0.4f)
     val shallowShadowColor = neo.shadow.copy(alpha = 0.3f)
@@ -624,14 +624,13 @@ private fun PrExpandedDetail(
                 Column(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    // Only show failed workflows
-                    if (failedWorkflows.isNotEmpty()) {
+                    if (pr.ciWorkflows.isNotEmpty()) {
                         Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            failedWorkflows.forEach { wf ->
+                            pr.ciWorkflows.forEach { wf ->
                                 WorkflowStatusRow(wf)
                             }
                         }
-                    } else if (pr.ciState != null && pr.ciWorkflows.isEmpty()) {
+                    } else if (pr.ciState != null) {
                         Text(
                             text = "No workflow details",
                             style = MonoStyle.codeSmall,
@@ -728,13 +727,18 @@ private fun WorkflowStatusRow(wf: CIWorkflowInfo) {
         wf.pendingCount > 0 -> statusColors.pending
         else -> statusColors.merged
     }
+    val icon = when {
+        wf.failureCount > 0 -> "\u274C"
+        wf.pendingCount > 0 -> "\u23F3"
+        else -> "\u2705"
+    }
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Text(
-            text = "\u274C",
+            text = icon,
             style = MonoStyle.codeSmall,
         )
         Text(

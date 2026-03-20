@@ -43,4 +43,5 @@ data class OpenPullRequest(
     val checkPendingCount: Int = 0,
     val ciWorkflows: List<CIWorkflowInfo> = emptyList(),
     val ciIsRunning: Boolean = false,
+    val ciTruncated: Boolean = false,
 )

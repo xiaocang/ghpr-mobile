@@ -216,6 +216,42 @@ class ParseCIContextsTest {
         assertTrue(result.workflows.isEmpty())
     }
 
+    @Test
+    fun `isWorkflow true wins when non-workflow entry is seen first`() {
+        val rollup = buildRollup(
+            checkRunNoWorkflow("CI", "SUCCESS"),
+            checkRun("lint", "SUCCESS", "CI"),
+        )
+        val result = parseCIContexts(rollup)
+        assertEquals(1, result.workflows.size)
+        val ci = result.workflows[0]
+        assertEquals("CI", ci.name)
+        assertTrue(ci.isWorkflow)
+    }
+
+    @Test
+    fun `truncated is false when pageInfo is absent`() {
+        val rollup = buildRollup(
+            checkRun("lint", "SUCCESS", "Build"),
+        )
+        val result = parseCIContexts(rollup)
+        assertFalse(result.truncated)
+    }
+
+    @Test
+    fun `truncated is true when hasNextPage is true`() {
+        val rollup = JSONObject().apply {
+            put("contexts", JSONObject().apply {
+                put("pageInfo", JSONObject().put("hasNextPage", true))
+                put("nodes", JSONArray().apply {
+                    put(checkRun("lint", "SUCCESS", "Build"))
+                })
+            })
+        }
+        val result = parseCIContexts(rollup)
+        assertTrue(result.truncated)
+    }
+
     // --- Helper builders ---
 
     private fun checkRun(name: String, conclusion: String?, workflowName: String): JSONObject {

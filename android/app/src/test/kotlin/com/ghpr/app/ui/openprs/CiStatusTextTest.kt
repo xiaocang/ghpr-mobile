@@ -10,6 +10,7 @@ class CiStatusTextTest {
     private fun pr(
         ciState: String?,
         ciWorkflows: List<CIWorkflowInfo> = emptyList(),
+        ciTruncated: Boolean = false,
     ) = OpenPullRequest(
         number = 1,
         title = "Test PR",
@@ -23,6 +24,7 @@ class CiStatusTextTest {
         repoName = "repo",
         ciState = ciState,
         ciWorkflows = ciWorkflows,
+        ciTruncated = ciTruncated,
     )
 
     @Test
@@ -43,7 +45,7 @@ class CiStatusTextTest {
             CIWorkflowInfo("Build", isWorkflow = true, successCount = 3, failureCount = 0, pendingCount = 0),
             CIWorkflowInfo("Test", isWorkflow = true, successCount = 5, failureCount = 0, pendingCount = 0),
         )
-        assertEquals("2wf", ciStatusText(pr(ciState = "SUCCESS", ciWorkflows = workflows)))
+        assertEquals("2ci", ciStatusText(pr(ciState = "SUCCESS", ciWorkflows = workflows)))
     }
 
     @Test
@@ -54,7 +56,7 @@ class CiStatusTextTest {
             CIWorkflowInfo("Lint", isWorkflow = true, successCount = 4, failureCount = 0, pendingCount = 0),
         )
         // 2 workflows have failures, 3 total workflows, 4 total failed tasks (1+3)
-        assertEquals("2/3wf\u00B74", ciStatusText(pr(ciState = "FAILURE", ciWorkflows = workflows)))
+        assertEquals("2/3ci\u00B74", ciStatusText(pr(ciState = "FAILURE", ciWorkflows = workflows)))
     }
 
     @Test
@@ -62,7 +64,7 @@ class CiStatusTextTest {
         val workflows = listOf(
             CIWorkflowInfo("Build", isWorkflow = true, successCount = 0, failureCount = 2, pendingCount = 0),
         )
-        assertEquals("1/1wf\u00B72", ciStatusText(pr(ciState = "ERROR", ciWorkflows = workflows)))
+        assertEquals("1/1ci\u00B72", ciStatusText(pr(ciState = "ERROR", ciWorkflows = workflows)))
     }
 
     @Test
@@ -73,7 +75,7 @@ class CiStatusTextTest {
             CIWorkflowInfo("Deploy", isWorkflow = true, successCount = 0, failureCount = 0, pendingCount = 2),
         )
         // Build (SUCCESS) and Test (FAILURE) are done, Deploy (PENDING) is not
-        assertEquals("2/3wf", ciStatusText(pr(ciState = "PENDING", ciWorkflows = workflows)))
+        assertEquals("2/3ci", ciStatusText(pr(ciState = "PENDING", ciWorkflows = workflows)))
     }
 
     @Test
@@ -89,7 +91,7 @@ class CiStatusTextTest {
         val workflows = listOf(
             CIWorkflowInfo("CI", isWorkflow = true, successCount = 0, failureCount = 1, pendingCount = 0),
         )
-        assertEquals("1/1wf\u00B71", ciStatusText(pr(ciState = "FAILURE", ciWorkflows = workflows)))
+        assertEquals("1/1ci\u00B71", ciStatusText(pr(ciState = "FAILURE", ciWorkflows = workflows)))
     }
 
     @Test
@@ -98,6 +100,16 @@ class CiStatusTextTest {
         val workflows = listOf(
             CIWorkflowInfo("Build", isWorkflow = true, successCount = 3, failureCount = 0, pendingCount = 0),
         )
-        assertEquals("0/1wf\u00B70", ciStatusText(pr(ciState = "FAILURE", ciWorkflows = workflows)))
+        assertEquals("0/1ci\u00B70", ciStatusText(pr(ciState = "FAILURE", ciWorkflows = workflows)))
+    }
+
+    @Test
+    fun `appends plus when ci is truncated`() {
+        val workflows = listOf(
+            CIWorkflowInfo("Build", isWorkflow = true, successCount = 3, failureCount = 0, pendingCount = 0),
+            CIWorkflowInfo("Test", isWorkflow = true, successCount = 5, failureCount = 0, pendingCount = 0),
+        )
+        assertEquals("2ci+", ciStatusText(pr(ciState = "SUCCESS", ciWorkflows = workflows, ciTruncated = true)))
+        assertEquals("2/2ci+", ciStatusText(pr(ciState = "PENDING", ciWorkflows = workflows, ciTruncated = true)))
     }
 }
