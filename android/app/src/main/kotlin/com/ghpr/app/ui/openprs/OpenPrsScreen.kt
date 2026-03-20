@@ -529,7 +529,7 @@ private fun OpenPrCard(
     }
 }
 
-private fun ciStatusText(pr: OpenPullRequest): String {
+internal fun ciStatusText(pr: OpenPullRequest): String {
     val ci = pr.ciState?.uppercase() ?: return "ci"
     val workflows = pr.ciWorkflows
     if (workflows.isEmpty()) return ci.lowercase()
