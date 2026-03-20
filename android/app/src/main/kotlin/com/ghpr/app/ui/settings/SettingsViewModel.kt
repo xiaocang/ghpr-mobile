@@ -10,6 +10,7 @@ import com.ghpr.app.data.DataStorePollingModeStore
 import com.ghpr.app.data.DataStoreRefreshSettingsStore
 import com.ghpr.app.data.GhprApiClient
 import com.ghpr.app.data.RegisterRunnerRequest
+import com.ghpr.app.data.RetryFlakyJob
 import com.ghpr.app.data.RunnerStatusResponse
 import com.ghpr.app.data.PollingMode
 import com.ghpr.app.data.PollingScheduler
@@ -43,6 +44,8 @@ data class SettingsUiState(
     val runnerRegistering: Boolean = false,
     val runnerRevoking: Boolean = false,
     val showRevokeRunnerConfirmDialog: Boolean = false,
+    val retryPendingCount: Int = 0,
+    val recentRetryResults: List<RetryFlakyJob> = emptyList(),
 )
 
 class SettingsViewModel(
@@ -67,6 +70,7 @@ class SettingsViewModel(
     private val _runnerRegistering = MutableStateFlow(false)
     private val _runnerRevoking = MutableStateFlow(false)
     private val _showRevokeRunnerConfirmDialog = MutableStateFlow(false)
+    private val _retryJobs = MutableStateFlow<List<RetryFlakyJob>>(emptyList())
 
     init {
         viewModelScope.launch {
@@ -74,11 +78,23 @@ class SettingsViewModel(
                 .filter { it is GitHubAuthState.SignedIn }
                 .collect {
                     refreshRunnerPollingStatus()
+                    loadRetryJobs()
                 }
         }
     }
 
-    val state: StateFlow<SettingsUiState> = combine(
+    private fun loadRetryJobs() {
+        viewModelScope.launch {
+            runCatching { apiClient.api.listRetryFlakyJobs() }
+                .onSuccess { response ->
+                    if (response.isSuccessful) {
+                        _retryJobs.value = response.body()?.jobs.orEmpty()
+                    }
+                }
+        }
+    }
+
+    private val baseState = combine(
         gitHubOAuthManager.authState,
         refreshInterval,
         notificationSettingsStore.notificationsEnabled,
@@ -90,6 +106,7 @@ class SettingsViewModel(
         _runnerRevoking,
         _showRevokeRunnerConfirmDialog,
     ) { values ->
+        @Suppress("UNCHECKED_CAST")
         val authState = values[0] as GitHubAuthState
         val interval = values[1] as Int
         val notifEnabled = values[2] as Boolean
@@ -128,6 +145,21 @@ class SettingsViewModel(
             runnerRevoking = revoking,
             showRevokeRunnerConfirmDialog = showRevokeDialog,
         )
+    }
+
+    val state: StateFlow<SettingsUiState> = combine(
+        baseState,
+        _retryJobs,
+    ) { base, jobs ->
+        val pendingCount = jobs.count { it.status == "active" }
+        val recentResults = jobs
+            .filter { it.status in listOf("completed", "exhausted", "cancelled") }
+            .sortedByDescending { it.updatedAt }
+            .take(5)
+        base.copy(
+            retryPendingCount = pendingCount,
+            recentRetryResults = recentResults,
+        )
     }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5000),
@@ -154,6 +186,7 @@ class SettingsViewModel(
             pollingScheduler.cancelClientPolling()
             pollingModeStore.setPollingMode(PollingMode.OFF)
             runnerStatus.value = null
+            _retryJobs.value = emptyList()
         }
         gitHubOAuthManager.signOut()
     }

@@ -19,5 +19,11 @@ worker-runner/.wrangler/
 # Gradle user home cache
 .gradle-user-home/
 
+# Rust
+target/
+
+# Cloudflare
+server/wrangler-local.toml
+
 # OS
 .DS_Store

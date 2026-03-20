@@ -231,6 +231,33 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                     InfoRow("Status", state.runnerPollingStatus)
                     InfoRow("Last poll", state.runnerLastPollAt ?: "N/A")
                     InfoRow("Last seen", state.runnerLastSeenAt ?: "N/A")
+                    InfoRow("PRs pending retry", state.retryPendingCount.toString())
+                    if (state.recentRetryResults.isNotEmpty()) {
+                        Text(
+                            text = "Recent retries:",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                        state.recentRetryResults.forEach { job ->
+                            val repoShort = job.repoFullName.substringAfter("/")
+                            val statusLabel = when (job.status) {
+                                "completed" -> "ok"
+                                "exhausted" -> "exhausted"
+                                "cancelled" -> "cancelled"
+                                else -> job.status
+                            }
+                            val color = when (job.status) {
+                                "completed" -> MaterialTheme.colorScheme.primary
+                                else -> MaterialTheme.colorScheme.error
+                            }
+                            Text(
+                                text = "$repoShort#${job.prNumber} \u2014 $statusLabel",
+                                style = MonoStyle.codeSmall,
+                                color = color,
+                            )
+                        }
+                    }
                     val pollingError = state.runnerPollingError
                     if (!pollingError.isNullOrBlank()) {
                         Text(
