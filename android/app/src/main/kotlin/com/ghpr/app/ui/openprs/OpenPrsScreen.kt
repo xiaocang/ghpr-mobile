@@ -4,19 +4,22 @@ import android.content.Intent
 import androidx.core.net.toUri
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -31,13 +34,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -54,9 +54,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.ghpr.app.data.CIWorkflowInfo
@@ -67,12 +71,23 @@ import com.ghpr.app.ui.components.EmptyStateView
 import com.ghpr.app.ui.components.ErrorStateView
 import com.ghpr.app.ui.components.StatusBadge
 import com.ghpr.app.ui.theme.LocalGhprStatusColors
+import com.ghpr.app.ui.theme.LocalNeoBrutalColors
 import com.ghpr.app.ui.theme.NeoButton
 import com.ghpr.app.ui.theme.MonoStyle
 import com.ghpr.app.ui.theme.NeoCard
 import com.ghpr.app.ui.theme.neoTopBarBorder
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+
+private val DetailEnterTransition =
+    expandVertically(animationSpec = spring(dampingRatio = 0.6f, stiffness = 400f)) +
+        fadeIn(animationSpec = tween(150, delayMillis = 30))
+
+private val DetailExitTransition =
+    fadeOut(animationSpec = tween(100)) +
+        shrinkVertically(animationSpec = tween(180, easing = FastOutSlowInEasing))
+
+private val ShallowCardShape = RoundedCornerShape(6.dp)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -175,8 +190,8 @@ fun OpenPrsScreen(viewModel: OpenPrsViewModel) {
                                         )
                                         AnimatedVisibility(
                                             visible = isExpanded,
-                                            enter = expandVertically(),
-                                            exit = shrinkVertically(),
+                                            enter = DetailEnterTransition,
+                                            exit = DetailExitTransition,
                                         ) {
                                             PrExpandedDetail(
                                                 pr = pr,
@@ -209,8 +224,8 @@ fun OpenPrsScreen(viewModel: OpenPrsViewModel) {
                                     )
                                     AnimatedVisibility(
                                         visible = isExpanded,
-                                        enter = expandVertically(),
-                                        exit = shrinkVertically(),
+                                        enter = DetailEnterTransition,
+                                        exit = DetailExitTransition,
                                     ) {
                                         PrExpandedDetail(
                                             pr = pr,
@@ -549,7 +564,6 @@ internal fun ciStatusText(pr: OpenPullRequest): String {
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PrExpandedDetail(
     pr: OpenPullRequest,
@@ -562,111 +576,144 @@ private fun PrExpandedDetail(
 ) {
     val context = LocalContext.current
     val statusColors = LocalGhprStatusColors.current
+    val neo = LocalNeoBrutalColors.current
     val hasActiveJob = retryFlakyJob != null && retryFlakyJob.status == "active"
     val isCiFailure = pr.ciState?.uppercase() in listOf("FAILURE", "ERROR")
+    val failedWorkflows = pr.ciWorkflows.filter { it.failureCount > 0 }
+    val borderColor = neo.border.copy(alpha = 0.5f)
+    val shallowBorderColor = neo.border.copy(alpha = 0.4f)
+    val shallowShadowColor = neo.shadow.copy(alpha = 0.3f)
 
-    Column(
+    // Outer: left vertical line + spacing
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 32.dp, end = 16.dp, bottom = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+            .padding(start = 32.dp, end = 16.dp, bottom = 8.dp)
+            .drawBehind {
+                // Left vertical line
+                drawLine(
+                    color = borderColor,
+                    start = Offset(0f, 0f),
+                    end = Offset(0f, size.height),
+                    strokeWidth = 2.dp.toPx(),
+                    cap = StrokeCap.Round,
+                )
+            }
+            .padding(start = 14.dp),
     ) {
-        // Workflow breakdown
-        if (pr.ciWorkflows.isNotEmpty()) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                pr.ciWorkflows.forEach { wf ->
-                    WorkflowStatusRow(wf)
-                }
-            }
-        } else if (pr.ciState != null) {
-            Text(
-                text = "No workflow details",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-
-        // Retry job info
-        if (retryFlakyJob != null) {
-            val statusText = when (retryFlakyJob.status) {
-                "active" -> "Retrying: ${retryFlakyJob.retriesRemaining}/${retryFlakyJob.totalRetries} remaining"
-                "completed" -> "Retry completed"
-                "exhausted" -> "Retries exhausted"
-                "cancelled" -> "Retry cancelled"
-                else -> "Retry: ${retryFlakyJob.status}"
-            }
-            val statusColor = when (retryFlakyJob.status) {
-                "active" -> statusColors.pending
-                "completed" -> statusColors.merged
-                else -> statusColors.closed
-            }
-            Text(
-                text = statusText,
-                style = MonoStyle.codeSmall,
-                color = statusColor,
-            )
-            retryFlakyJob.updatedAt?.let { updatedAt ->
-                Text(
-                    text = "Last retry: $updatedAt",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-
-        // Action buttons
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+        // Shallow card: shadow + border + bg
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 2.dp, end = 2.dp),
         ) {
-            NeoButton(
-                onClick = {
-                    context.startActivity(Intent(Intent.ACTION_VIEW, pr.url.toUri()))
-                },
-                containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                contentColor = MaterialTheme.colorScheme.onSurface,
+            // Shadow layer
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .offset(x = 2.dp, y = 2.dp)
+                    .background(shallowShadowColor, ShallowCardShape),
+            )
+            // Content layer
+            Box(
+                modifier = Modifier
+                    .background(neo.cardBg, ShallowCardShape)
+                    .border(1.5.dp, shallowBorderColor, ShallowCardShape)
+                    .padding(10.dp),
             ) {
-                Icon(
-                    Icons.Default.OpenInBrowser,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("Open PR", style = MaterialTheme.typography.labelMedium)
-            }
-            if (onRetryCi != null && isCiFailure) {
-                NeoButton(
-                    onClick = onRetryCi,
-                    enabled = !isCiSubmitting && !isRetrySubmitting,
-                    containerColor = Color(0xFF3B82F6),
-                    contentColor = Color.White,
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Text("Retry", style = MaterialTheme.typography.labelMedium)
-                }
-            }
-            if (onRetryFlaky != null && isCiFailure) {
-                NeoButton(
-                    onClick = onRetryFlaky,
-                    enabled = !isRetrySubmitting && !isCiSubmitting && !hasActiveJob,
-                    containerColor = Color(0xFFF59E0B),
-                    contentColor = Color.White,
-                ) {
-                    Text("Retry x3", style = MaterialTheme.typography.labelMedium)
-                }
-            }
-            if (hasActiveJob && onCancelRetryFlaky != null) {
-                NeoButton(
-                    onClick = onCancelRetryFlaky,
-                    containerColor = MaterialTheme.colorScheme.errorContainer,
-                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                ) {
-                    Icon(
-                        Icons.Default.Close,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Cancel", style = MaterialTheme.typography.labelMedium)
+                    // Only show failed workflows
+                    if (failedWorkflows.isNotEmpty()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            failedWorkflows.forEach { wf ->
+                                WorkflowStatusRow(wf)
+                            }
+                        }
+                    } else if (pr.ciState != null && pr.ciWorkflows.isEmpty()) {
+                        Text(
+                            text = "No workflow details",
+                            style = MonoStyle.codeSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+
+                    // Retry job info
+                    if (retryFlakyJob != null) {
+                        val statusText = when (retryFlakyJob.status) {
+                            "active" -> "\uD83D\uDD04 ${retryFlakyJob.retriesRemaining}/${retryFlakyJob.totalRetries} left"
+                            "completed" -> "\u2705 done"
+                            "exhausted" -> "\u274C exhausted"
+                            "cancelled" -> "\u23F9 cancelled"
+                            else -> retryFlakyJob.status
+                        }
+                        val statusColor = when (retryFlakyJob.status) {
+                            "active" -> statusColors.pending
+                            "completed" -> statusColors.merged
+                            else -> statusColors.closed
+                        }
+                        Text(
+                            text = statusText,
+                            style = MonoStyle.codeSmall,
+                            color = statusColor,
+                        )
+                    }
+
+                    // Action row — StatusBadge-style pills
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        // Open PR
+                        StatusBadge(
+                            text = "\uD83D\uDD17 open",
+                            color = statusColors.link,
+                            modifier = Modifier.weight(1f),
+                            onClick = {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, pr.url.toUri()))
+                            },
+                        )
+
+                        if (onRetryCi != null && isCiFailure) {
+                            val enabled = !isCiSubmitting && !isRetrySubmitting
+                            StatusBadge(
+                                text = "\uD83D\uDD04",
+                                color = Color(0xFF3B82F6),
+                                modifier = Modifier.weight(1f),
+                                enabled = enabled,
+                                onClick = { onRetryCi() },
+                            )
+                        }
+
+                        if (onRetryFlaky != null && isCiFailure) {
+                            val enabled = !isRetrySubmitting && !isCiSubmitting && !hasActiveJob
+                            StatusBadge(
+                                text = "\uD83D\uDD04x3",
+                                color = Color(0xFFF59E0B),
+                                modifier = Modifier.weight(1f),
+                                enabled = enabled,
+                                onClick = { onRetryFlaky() },
+                            )
+                        }
+
+                        if (hasActiveJob && onCancelRetryFlaky != null) {
+                            StatusBadge(
+                                text = "\u23F9",
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.weight(1f),
+                                onClick = { onCancelRetryFlaky() },
+                            )
+                        }
+
+                        if (isCiSubmitting || isRetrySubmitting) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.weight(1f).size(14.dp),
+                                strokeWidth = 1.5.dp,
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -681,31 +728,27 @@ private fun WorkflowStatusRow(wf: CIWorkflowInfo) {
         wf.pendingCount > 0 -> statusColors.pending
         else -> statusColors.merged
     }
-    val statusText = when {
-        wf.failureCount > 0 -> "${wf.failureCount} failed"
-        wf.pendingCount > 0 -> "${wf.pendingCount} pending"
-        else -> "${wf.successCount} passed"
-    }
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
+        Text(
+            text = "\u274C",
+            style = MonoStyle.codeSmall,
+        )
         Text(
             text = wf.name,
             style = MonoStyle.codeSmall,
-            color = MaterialTheme.colorScheme.onSurface,
+            color = color,
             modifier = Modifier.weight(1f),
             maxLines = 1,
-        )
-        StatusBadge(
-            text = statusText,
-            color = color,
+            overflow = TextOverflow.Ellipsis,
         )
         if (wf.totalCount > 1) {
             Text(
-                text = "${wf.successCount}/${wf.totalCount}",
-                style = MaterialTheme.typography.bodySmall,
+                text = "${wf.failureCount}/${wf.totalCount}",
+                style = MonoStyle.codeSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
