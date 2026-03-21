@@ -37,7 +37,7 @@ GitHub ──webhook──▶ Server (CF Worker + D1) ──FCM──▶ Android
 
 ### 1. Download the app
 
-Grab the latest APK from [Releases](https://github.com/xiaocang/ghpr-mobile/releases).
+Grab the latest APK from [Releases](https://github.com/ghpr-lab/ghpr-mobile/releases).
 
 To build from source, see [`android/README.md`](android/README.md).
 
