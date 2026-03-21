@@ -12,55 +12,51 @@ import kotlinx.coroutines.flow.first
 
 private val Context.syncCacheDataStore: DataStore<Preferences> by preferencesDataStore(name = "sync_cache")
 
-class DataStoreSyncCacheStore(private val context: Context) {
-    private val gson = Gson()
+internal const val legacyOpenPrsCacheKeyName = "open_prs_json"
+internal const val openPrsCacheKeyName = "open_prs_v2_json"
+
+class DataStoreSyncCacheStore internal constructor(
+    private val dataStore: DataStore<Preferences>,
+    private val gson: Gson = Gson(),
+) {
+    constructor(context: Context) : this(context.syncCacheDataStore)
 
     private val subscriptionsKey = stringPreferencesKey("subscriptions_json")
     private val historyKey = stringPreferencesKey("history_json")
-    private val openPrsKey = stringPreferencesKey("open_prs_json")
+    private val legacyOpenPrsKey = stringPreferencesKey(legacyOpenPrsCacheKeyName)
+    private val openPrsKey = stringPreferencesKey(openPrsCacheKeyName)
 
-    suspend fun readSubscriptions(): List<String> {
-        val raw = context.syncCacheDataStore.data.first()[subscriptionsKey].orEmpty()
-        if (raw.isBlank()) return emptyList()
-        return runCatching {
-            val type = object : TypeToken<List<String>>() {}.type
-            gson.fromJson<List<String>>(raw, type).orEmpty()
-        }.getOrDefault(emptyList())
-    }
+    suspend fun readSubscriptions(): List<String> = readList(subscriptionsKey)
 
     suspend fun writeSubscriptions(items: List<String>) {
-        context.syncCacheDataStore.edit { prefs ->
+        dataStore.edit { prefs ->
             prefs[subscriptionsKey] = gson.toJson(items)
         }
     }
 
-    suspend fun readHistory(): List<ChangedPr> {
-        val raw = context.syncCacheDataStore.data.first()[historyKey].orEmpty()
-        if (raw.isBlank()) return emptyList()
-        return runCatching {
-            val type = object : TypeToken<List<ChangedPr>>() {}.type
-            gson.fromJson<List<ChangedPr>>(raw, type).orEmpty()
-        }.getOrDefault(emptyList())
-    }
+    suspend fun readHistory(): List<ChangedPr> = readList(historyKey)
 
     suspend fun writeHistory(items: List<ChangedPr>) {
-        context.syncCacheDataStore.edit { prefs ->
+        dataStore.edit { prefs ->
             prefs[historyKey] = gson.toJson(items)
         }
     }
 
-    suspend fun readOpenPrs(): List<OpenPullRequest> {
-        val raw = context.syncCacheDataStore.data.first()[openPrsKey].orEmpty()
-        if (raw.isBlank()) return emptyList()
-        return runCatching {
-            val type = object : TypeToken<List<OpenPullRequest>>() {}.type
-            gson.fromJson<List<OpenPullRequest>>(raw, type).orEmpty()
-        }.getOrDefault(emptyList())
-    }
+    suspend fun readOpenPrs(): List<OpenPullRequest> = readList(openPrsKey)
 
     suspend fun writeOpenPrs(items: List<OpenPullRequest>) {
-        context.syncCacheDataStore.edit { prefs ->
+        dataStore.edit { prefs ->
             prefs[openPrsKey] = gson.toJson(items)
+            prefs.remove(legacyOpenPrsKey)
         }
+    }
+
+    private suspend inline fun <reified T> readList(key: Preferences.Key<String>): List<T> {
+        val raw = runCatching { dataStore.data.first()[key].orEmpty() }.getOrDefault("")
+        if (raw.isBlank()) return emptyList()
+        return runCatching {
+            val type = object : TypeToken<List<T>>() {}.type
+            gson.fromJson<List<T>>(raw, type).orEmpty()
+        }.getOrDefault(emptyList())
     }
 }

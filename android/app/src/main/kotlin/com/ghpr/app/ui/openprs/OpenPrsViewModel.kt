@@ -57,18 +57,15 @@ class OpenPrsViewModel(
     }
 
     fun load() {
-        if (gitHubOAuthManager.getToken() == null) {
-            _state.value = _state.value.copy(isSignedIn = false)
-            return
-        }
+        if (gitHubOAuthManager.getToken() == null) return
         viewModelScope.launch {
             val cached = cacheStore.readOpenPrs()
+            val (authored, reviewRequested) = cached.partition { it.category == PrCategory.AUTHORED }
             _state.value = _state.value.copy(
-                authoredPrs = if (cached.isNotEmpty()) cached.filter { it.category == PrCategory.AUTHORED } else _state.value.authoredPrs,
-                reviewRequestedPrs = if (cached.isNotEmpty()) cached.filter { it.category == PrCategory.REVIEW_REQUESTED } else _state.value.reviewRequestedPrs,
+                authoredPrs = authored.ifEmpty { _state.value.authoredPrs },
+                reviewRequestedPrs = reviewRequested.ifEmpty { _state.value.reviewRequestedPrs },
                 isLoading = cached.isEmpty(),
                 error = null,
-                isSignedIn = true,
             )
             try {
                 val repos = cacheStore.readSubscriptions()
@@ -83,9 +80,10 @@ class OpenPrsViewModel(
                 }
                 val prs = result.pullRequests.sortedByDescending { it.updatedAt }
                 cacheStore.writeOpenPrs(prs)
+                val (authored, reviewRequested) = prs.partition { it.category == PrCategory.AUTHORED }
                 _state.value = _state.value.copy(
-                    authoredPrs = prs.filter { it.category == PrCategory.AUTHORED },
-                    reviewRequestedPrs = prs.filter { it.category == PrCategory.REVIEW_REQUESTED },
+                    authoredPrs = authored,
+                    reviewRequestedPrs = reviewRequested,
                     ssoRequired = result.ssoRequired,
                     isLoading = false,
                 )
@@ -116,9 +114,10 @@ class OpenPrsViewModel(
                 }
                 val prs = result.pullRequests.sortedByDescending { it.updatedAt }
                 cacheStore.writeOpenPrs(prs)
+                val (authored, reviewRequested) = prs.partition { it.category == PrCategory.AUTHORED }
                 _state.value = _state.value.copy(
-                    authoredPrs = prs.filter { it.category == PrCategory.AUTHORED },
-                    reviewRequestedPrs = prs.filter { it.category == PrCategory.REVIEW_REQUESTED },
+                    authoredPrs = authored,
+                    reviewRequestedPrs = reviewRequested,
                     ssoRequired = result.ssoRequired,
                     isRefreshing = false,
                 )
