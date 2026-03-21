@@ -85,7 +85,13 @@ class OpenPrsUiStateTest {
 
         val isExpanded = state.expandedPrKey == key
         val isCiFailure = testPr.ciState?.uppercase() in listOf("FAILURE", "ERROR")
-        val swipeEnabled = isCiFailure && !isExpanded
+        val swipeEnabled = shouldEnableSwipeReveal(
+            isCiFailure = isCiFailure,
+            isRetrySubmitting = false,
+            isCiSubmitting = false,
+            hasActiveJob = false,
+            isExpanded = isExpanded,
+        )
 
         assertEquals(false, swipeEnabled)
     }
@@ -98,7 +104,13 @@ class OpenPrsUiStateTest {
 
         val isExpanded = state.expandedPrKey == key
         val isCiFailure = testPr.ciState?.uppercase() in listOf("FAILURE", "ERROR")
-        val swipeEnabled = isCiFailure && !isExpanded
+        val swipeEnabled = shouldEnableSwipeReveal(
+            isCiFailure = isCiFailure,
+            isRetrySubmitting = false,
+            isCiSubmitting = false,
+            hasActiveJob = false,
+            isExpanded = isExpanded,
+        )
 
         assertEquals(true, swipeEnabled)
     }

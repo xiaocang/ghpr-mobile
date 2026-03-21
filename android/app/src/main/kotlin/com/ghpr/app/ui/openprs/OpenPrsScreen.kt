@@ -60,6 +60,9 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -88,6 +91,27 @@ private val DetailExitTransition =
         shrinkVertically(animationSpec = tween(180, easing = FastOutSlowInEasing))
 
 private val ShallowCardShape = RoundedCornerShape(6.dp)
+
+internal const val SwipeRevealClosedStateDescription = "closed"
+internal const val SwipeRevealOpenStateDescription = "revealed"
+
+internal fun prCardTag(pr: OpenPullRequest): String =
+    "pr-card:${OpenPrsViewModel.prKey(pr)}"
+
+internal fun prSwipeForegroundTag(pr: OpenPullRequest): String =
+    "pr-swipe-foreground:${OpenPrsViewModel.prKey(pr)}"
+
+internal fun prExpandedDetailTag(pr: OpenPullRequest): String =
+    "pr-expanded-detail:${OpenPrsViewModel.prKey(pr)}"
+
+internal fun shouldEnableSwipeReveal(
+    isCiFailure: Boolean,
+    isRetrySubmitting: Boolean,
+    isCiSubmitting: Boolean,
+    hasActiveJob: Boolean,
+    isExpanded: Boolean,
+): Boolean =
+    isCiFailure && !isRetrySubmitting && !isCiSubmitting && !hasActiveJob && !isExpanded
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -170,41 +194,18 @@ fun OpenPrsScreen(viewModel: OpenPrsViewModel) {
                                 val job = state.retryFlakyJobs[key]
                                 val isRetrySubmitting = state.retryFlakySubmitting.contains(key)
                                 val isCiSubmitting = state.retryCiSubmitting.contains(key)
-                                val hasActiveJob = job != null && job.status == "active"
-                                val isCiFailure = pr.ciState?.uppercase() in listOf("FAILURE", "ERROR")
                                 val isExpanded = state.expandedPrKey == key
-                                val swipeEnabled = isCiFailure && !isRetrySubmitting && !isCiSubmitting && !hasActiveJob && !isExpanded
-                                SwipeRevealBox(
-                                    enabled = swipeEnabled,
+                                AuthoredPrRow(
+                                    pr = pr,
+                                    retryFlakyJob = job,
+                                    isRetrySubmitting = isRetrySubmitting,
+                                    isCiSubmitting = isCiSubmitting,
+                                    isExpanded = isExpanded,
+                                    onToggleExpand = { viewModel.toggleExpanded(pr) },
                                     onRetryCi = { viewModel.retryCi(pr) },
                                     onRetryFlaky = { viewModel.retryFlaky(pr) },
-                                ) {
-                                    Column {
-                                        OpenPrCard(
-                                            pr = pr,
-                                            showReviewMetrics = true,
-                                            isExpanded = isExpanded,
-                                            onToggleExpand = { viewModel.toggleExpanded(pr) },
-                                            retryFlakyJob = job,
-                                            isRetrySubmitting = isRetrySubmitting,
-                                        )
-                                        AnimatedVisibility(
-                                            visible = isExpanded,
-                                            enter = DetailEnterTransition,
-                                            exit = DetailExitTransition,
-                                        ) {
-                                            PrExpandedDetail(
-                                                pr = pr,
-                                                retryFlakyJob = job,
-                                                isRetrySubmitting = isRetrySubmitting,
-                                                isCiSubmitting = isCiSubmitting,
-                                                onRetryCi = { viewModel.retryCi(pr) },
-                                                onRetryFlaky = { viewModel.retryFlaky(pr) },
-                                                onCancelRetryFlaky = { viewModel.cancelRetryFlaky(pr) },
-                                            )
-                                        }
-                                    }
-                                }
+                                    onCancelRetryFlaky = { viewModel.cancelRetryFlaky(pr) },
+                                )
                             }
                         }
                         if (state.reviewRequestedPrs.isNotEmpty()) {
@@ -265,6 +266,64 @@ private fun SectionHeader(title: String, count: Int) {
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+@Composable
+internal fun AuthoredPrRow(
+    pr: OpenPullRequest,
+    retryFlakyJob: RetryFlakyJob?,
+    isRetrySubmitting: Boolean,
+    isCiSubmitting: Boolean,
+    isExpanded: Boolean,
+    onToggleExpand: () -> Unit,
+    onRetryCi: () -> Unit,
+    onRetryFlaky: () -> Unit,
+    onCancelRetryFlaky: () -> Unit,
+) {
+    val hasActiveJob = retryFlakyJob?.status == "active"
+    val isCiFailure = pr.ciState?.uppercase() in listOf("FAILURE", "ERROR")
+    val swipeEnabled = shouldEnableSwipeReveal(
+        isCiFailure = isCiFailure,
+        isRetrySubmitting = isRetrySubmitting,
+        isCiSubmitting = isCiSubmitting,
+        hasActiveJob = hasActiveJob,
+        isExpanded = isExpanded,
+    )
+
+    SwipeRevealBox(
+        enabled = swipeEnabled,
+        onRetryCi = onRetryCi,
+        onRetryFlaky = onRetryFlaky,
+        foregroundTestTag = prSwipeForegroundTag(pr),
+    ) {
+        Column {
+            OpenPrCard(
+                pr = pr,
+                showReviewMetrics = true,
+                isExpanded = isExpanded,
+                onToggleExpand = onToggleExpand,
+                retryFlakyJob = retryFlakyJob,
+                isRetrySubmitting = isRetrySubmitting,
+                modifier = Modifier.testTag(prCardTag(pr)),
+            )
+            AnimatedVisibility(
+                visible = isExpanded,
+                enter = DetailEnterTransition,
+                exit = DetailExitTransition,
+            ) {
+                PrExpandedDetail(
+                    pr = pr,
+                    retryFlakyJob = retryFlakyJob,
+                    isRetrySubmitting = isRetrySubmitting,
+                    isCiSubmitting = isCiSubmitting,
+                    onRetryCi = onRetryCi,
+                    onRetryFlaky = onRetryFlaky,
+                    onCancelRetryFlaky = onCancelRetryFlaky,
+                    modifier = Modifier.testTag(prExpandedDetailTag(pr)),
+                )
+            }
+        }
     }
 }
 
@@ -331,18 +390,20 @@ private fun SwipeRevealBox(
     enabled: Boolean,
     onRetryCi: () -> Unit,
     onRetryFlaky: () -> Unit,
+    foregroundTestTag: String? = null,
     content: @Composable () -> Unit,
 ) {
-    if (!enabled) {
-        content()
-        return
-    }
-
     val revealWidthDp = 140.dp
     val density = LocalDensity.current
     val revealWidthPx = with(density) { revealWidthDp.toPx() }
     val offsetX = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
+
+    LaunchedEffect(enabled) {
+        if (!enabled && offsetX.value != 0f) {
+            offsetX.animateTo(0f)
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -365,7 +426,7 @@ private fun SwipeRevealBox(
                     .padding(vertical = 4.dp)
                     .clip(RoundedCornerShape(6.dp))
                     .background(Color(0xFF3B82F6))
-                    .clickable {
+                    .clickable(enabled = enabled) {
                         scope.launch {
                             offsetX.animateTo(0f)
                         }
@@ -386,7 +447,7 @@ private fun SwipeRevealBox(
                     .padding(start = 4.dp, top = 4.dp, bottom = 4.dp)
                     .clip(RoundedCornerShape(6.dp))
                     .background(Color(0xFFF59E0B))
-                    .clickable {
+                    .clickable(enabled = enabled) {
                         scope.launch {
                             offsetX.animateTo(0f)
                         }
@@ -404,28 +465,44 @@ private fun SwipeRevealBox(
         // Foreground card — slides left
         Box(
             modifier = Modifier
+                .then(
+                    if (foregroundTestTag != null) {
+                        Modifier.testTag(foregroundTestTag)
+                    } else {
+                        Modifier
+                    },
+                )
                 .offset { IntOffset(offsetX.value.roundToInt(), 0) }
                 .background(MaterialTheme.colorScheme.background)
-                .pointerInput(Unit) {
-                    detectHorizontalDragGestures(
-                        onDragEnd = {
-                            scope.launch {
-                                // Snap: if past halfway, open; otherwise close
-                                if (offsetX.value < -revealWidthPx / 2) {
-                                    offsetX.animateTo(-revealWidthPx)
-                                } else {
-                                    offsetX.animateTo(0f)
+                .semantics {
+                    stateDescription = if (offsetX.value < -1f) {
+                        SwipeRevealOpenStateDescription
+                    } else {
+                        SwipeRevealClosedStateDescription
+                    }
+                }
+                .pointerInput(enabled, revealWidthPx) {
+                    if (enabled) {
+                        detectHorizontalDragGestures(
+                            onDragEnd = {
+                                scope.launch {
+                                    // Snap: if past halfway, open; otherwise close
+                                    if (offsetX.value < -revealWidthPx / 2) {
+                                        offsetX.animateTo(-revealWidthPx)
+                                    } else {
+                                        offsetX.animateTo(0f)
+                                    }
                                 }
-                            }
-                        },
-                        onHorizontalDrag = { _, dragAmount ->
-                            scope.launch {
-                                val newOffset = (offsetX.value + dragAmount)
-                                    .coerceIn(-revealWidthPx, 0f)
-                                offsetX.snapTo(newOffset)
-                            }
-                        },
-                    )
+                            },
+                            onHorizontalDrag = { _, dragAmount ->
+                                scope.launch {
+                                    val newOffset = (offsetX.value + dragAmount)
+                                        .coerceIn(-revealWidthPx, 0f)
+                                    offsetX.snapTo(newOffset)
+                                }
+                            },
+                        )
+                    }
                 },
         ) {
             content()
@@ -441,12 +518,13 @@ private fun OpenPrCard(
     onToggleExpand: (() -> Unit)? = null,
     retryFlakyJob: RetryFlakyJob? = null,
     isRetrySubmitting: Boolean = false,
+    modifier: Modifier = Modifier,
 ) {
     val statusColors = LocalGhprStatusColors.current
     val hasActiveJob = retryFlakyJob != null && retryFlakyJob.status == "active"
 
     NeoCard(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp)
             .clickable { onToggleExpand?.invoke() },
@@ -574,6 +652,7 @@ private fun PrExpandedDetail(
     onRetryCi: (() -> Unit)?,
     onRetryFlaky: (() -> Unit)?,
     onCancelRetryFlaky: (() -> Unit)?,
+    modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val statusColors = LocalGhprStatusColors.current
@@ -586,7 +665,7 @@ private fun PrExpandedDetail(
 
     // Outer: left vertical line + spacing
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(start = 32.dp, end = 16.dp, bottom = 8.dp)
             .drawBehind {

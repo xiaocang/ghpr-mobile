@@ -59,7 +59,7 @@ class OpenPrsViewModel(
     fun load() {
         if (gitHubOAuthManager.getToken() == null) return
         viewModelScope.launch {
-            val cached = cacheStore.readOpenPrs()
+            val cached = runCatching { cacheStore.readOpenPrs() }.getOrDefault(emptyList())
             val (authored, reviewRequested) = cached.partition { it.category == PrCategory.AUTHORED }
             _state.value = _state.value.copy(
                 authoredPrs = authored.ifEmpty { _state.value.authoredPrs },
